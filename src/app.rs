@@ -823,6 +823,7 @@ impl App {
                     jvm_args: f.jvm.trim().to_string(),
                     last_played: 0,
                     auto_perf: f.auto_perf,
+                    extra: Default::default(),
                 };
                 let _ = std::fs::create_dir_all(inst.mods_dir());
                 self.cfg.selected_instance = Some(inst.id.clone());

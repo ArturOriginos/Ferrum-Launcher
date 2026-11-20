@@ -176,6 +176,7 @@ pub fn run(
                 jvm_args: String::new(),
                 last_played: 0,
                 auto_perf: false,
+                extra: Default::default(),
             },
             warnings,
         )),

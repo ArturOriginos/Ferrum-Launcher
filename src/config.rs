@@ -10,6 +10,12 @@ use std::{
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Версия формата config.json. Растёт, когда формат меняется несовместимо.
+pub const CONFIG_VERSION: u32 = 2;
+
+/// Неизвестные поля из конфига другой версии лаунчера: сохраняем их, чтобы не потерять при записи.
+pub type Extra = serde_json::Map<String, serde_json::Value>;
+
 /// Время в виде «2026-11-19_14-05-09» (UTC) для имён файлов и логов.
 pub fn stamp(secs: u64) -> String {
     let days = (secs / 86400) as i64;
@@ -26,10 +32,6 @@ pub fn stamp(secs: u64) -> String {
     let mo = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if mo <= 2 { y + 1 } else { y };
     format!("{y:04}-{mo:02}-{d:02}_{h:02}-{m:02}-{s:02}")
-}
-
-fn default_true() -> bool {
-    true
 }
 
 pub fn now() -> u64 {
@@ -167,6 +169,8 @@ pub struct Settings {
     pub has_icon: bool,
     /// Версия принятого пользовательского соглашения (пусто — не принято).
     pub accepted_terms: String,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Default for Settings {
@@ -191,6 +195,7 @@ impl Default for Settings {
             bg_dim: 72,
             has_icon: false,
             accepted_terms: String::new(),
+            extra: Extra::new(),
         }
     }
 }
@@ -214,8 +219,11 @@ pub struct Instance {
     #[serde(default)]
     pub last_played: u64,
     /// Автоустановка Sodium (Fabric/Quilt/NeoForge) или OptiFine (Forge).
-    #[serde(default = "default_true")]
+    /// У сборок, созданных старыми версиями, поля нет: для них выключено, ничего не ставится само.
+    #[serde(default)]
     pub auto_perf: bool,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Instance {
@@ -243,6 +251,8 @@ pub struct Account {
     /// Some(время) — временный аккаунт, удалится после этого момента.
     #[serde(default)]
     pub expires_at: Option<u64>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Account {
@@ -251,6 +261,7 @@ impl Account {
             name: name.to_string(),
             uuid: offline_uuid(name),
             expires_at: ttl_secs.map(|t| now() + t),
+            extra: Extra::new(),
         }
     }
 }
@@ -290,24 +301,53 @@ pub fn random_nick() -> String {
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
 pub struct Config {
+    pub config_version: u32,
     pub settings: Settings,
     pub accounts: Vec<Account>,
     pub instances: Vec<Instance>,
     pub selected_account: Option<String>,
     pub selected_instance: Option<String>,
+    #[serde(flatten)]
+    pub extra: Extra,
 }
 
 impl Config {
+    /// Читает конфиг. Если формат не подошёл (файл от другой версии), делает копию
+    /// `config.backup-<время>.json` и вытаскивает всё, что получится, ничего не стирая молча.
     pub fn load() -> Self {
-        fs::read_to_string(config_path())
-            .ok()
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default()
+        let path = config_path();
+        let Ok(text) = fs::read_to_string(&path) else {
+            return Config::default();
+        };
+        let mut cfg = match serde_json::from_str::<Config>(&text) {
+            Ok(cfg) => cfg,
+            Err(_) => {
+                let backup = data_dir().join(format!("config.backup-{}.json", stamp(now())));
+                let _ = fs::write(&backup, &text);
+                parse_lenient(&text).unwrap_or_default()
+            }
+        };
+        cfg.migrate();
+        cfg
     }
 
+    /// Приводит конфиг старых версий к текущему формату.
+    fn migrate(&mut self) {
+        // Версия 0–1: поле auto_perf появилось позже, для старых сборок оно уже выключено (serde default).
+        // Если файл записала более новая версия, номер не понижаем.
+        if self.config_version < CONFIG_VERSION {
+            self.config_version = CONFIG_VERSION;
+        }
+    }
+
+    /// Запись через временный файл: при сбое посреди записи старый конфиг остаётся целым.
     pub fn save(&self) {
         if let Ok(s) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(config_path(), s);
+            let path = config_path();
+            let tmp = path.with_extension("json.tmp");
+            if fs::write(&tmp, s).is_ok() && fs::rename(&tmp, &path).is_err() {
+                let _ = fs::remove_file(&tmp);
+            }
         }
     }
 
@@ -364,6 +404,56 @@ mod tests {
     }
 
     #[test]
+    fn old_config_without_new_fields_loads() {
+        // формат версии 0.1.0: нет auto_perf, accounts без expires_at, нет полей оформления
+        let old = r#"{
+            "settings": {"ram_mb": 6144, "auto_java": true},
+            "accounts": [{"name": "Steve", "uuid": "u1"}],
+            "instances": [{"id": "a", "name": "A", "mc_version": "1.20.1", "loader": "Forge"}],
+            "selected_instance": "a"
+        }"#;
+        let cfg: Config = serde_json::from_str(old).unwrap();
+        assert_eq!(cfg.settings.ram_mb, 6144);
+        assert_eq!(cfg.accounts[0].expires_at, None);
+        assert!(!cfg.instances[0].auto_perf, "старые сборки не должны получать автоустановку");
+        assert_eq!(cfg.settings.palette, 0);
+    }
+
+    #[test]
+    fn unknown_fields_survive_a_round_trip() {
+        let newer = r#"{"config_version": 9, "future_thing": {"a": 1},
+            "settings": {"ram_mb": 2048, "future_setting": true}}"#;
+        let cfg: Config = serde_json::from_str(newer).unwrap();
+        let back = serde_json::to_string(&cfg).unwrap();
+        assert!(back.contains("future_thing"));
+        assert!(back.contains("future_setting"));
+    }
+
+    #[test]
+    fn unknown_loader_does_not_lose_the_config() {
+        let text = r#"{
+            "accounts": [{"name": "Steve", "uuid": "u1"}],
+            "instances": [
+                {"id": "a", "name": "A", "mc_version": "1.21.1", "loader": "FutureLoader"},
+                {"id": "b", "name": "B", "mc_version": "1.21.1", "loader": "Fabric"}
+            ]
+        }"#;
+        assert!(serde_json::from_str::<Config>(text).is_err());
+        let cfg = parse_lenient(text).unwrap();
+        assert_eq!(cfg.instances.len(), 2);
+        assert_eq!(cfg.instances[0].loader, Loader::Vanilla);
+        assert_eq!(cfg.accounts.len(), 1);
+    }
+
+    #[test]
+    fn broken_entry_is_skipped_not_fatal() {
+        let text = r#"{"instances": [{"id": 5}, {"id": "ok", "name": "N", "mc_version": "1.21.1", "loader": "Forge"}]}"#;
+        let cfg = parse_lenient(text).unwrap();
+        assert_eq!(cfg.instances.len(), 1);
+        assert_eq!(cfg.instances[0].id, "ok");
+    }
+
+    #[test]
     fn expired_temporary_accounts_are_purged() {
         let mut cfg = Config::default();
         let mut old = Account::offline("OldOne", Some(10));
@@ -374,5 +464,49 @@ mod tests {
         assert_eq!(cfg.accounts.len(), 1);
         assert_eq!(cfg.accounts[0].name, "Keeper");
         assert_eq!(cfg.selected_account.as_deref(), Some(cfg.accounts[0].uuid.as_str()));
+    }
+}
+
+/// Разбор «по частям»: битая сборка или аккаунт не рушат весь конфиг.
+fn parse_lenient(text: &str) -> Option<Config> {
+    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    let obj = v.as_object()?;
+    let mut cfg = Config::default();
+    if let Some(s) = obj.get("settings") {
+        if let Ok(x) = serde_json::from_value::<Settings>(s.clone()) {
+            cfg.settings = x;
+        }
+    }
+    if let Some(a) = obj.get("accounts").and_then(|a| a.as_array()) {
+        cfg.accounts = a
+            .iter()
+            .filter_map(|x| serde_json::from_value::<Account>(x.clone()).ok())
+            .collect();
+    }
+    if let Some(a) = obj.get("instances").and_then(|a| a.as_array()) {
+        cfg.instances = a
+            .iter()
+            .filter_map(|x| {
+                let mut x = x.clone();
+                fix_unknown_loader(&mut x);
+                serde_json::from_value::<Instance>(x).ok()
+            })
+            .collect();
+    }
+    cfg.selected_account = obj.get("selected_account").and_then(|x| x.as_str()).map(String::from);
+    cfg.selected_instance = obj.get("selected_instance").and_then(|x| x.as_str()).map(String::from);
+    cfg.config_version = obj.get("config_version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
+    Some(cfg)
+}
+
+/// Загрузчик из будущей версии лаунчера, которого мы не знаем, считаем Vanilla.
+fn fix_unknown_loader(v: &mut serde_json::Value) {
+    let known = ["Vanilla", "Fabric", "Quilt", "Forge", "NeoForge"];
+    let unknown = v
+        .get("loader")
+        .and_then(|l| l.as_str())
+        .map_or(false, |l| !known.contains(&l));
+    if unknown {
+        v["loader"] = serde_json::json!("Vanilla");
     }
 }

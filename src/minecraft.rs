@@ -218,6 +218,45 @@ fn maven_path(name: &str) -> Option<String> {
     Some(format!("{g}/{a}/{v}/{a}-{v}{cls}.{ext}"))
 }
 
+/// Все варианты natives-библиотек LWJGL, которые встречаются в манифестах.
+const ARCH_NATIVES: [&str; 8] = [
+    "natives-windows",
+    "natives-windows-arm64",
+    "natives-windows-x86",
+    "natives-linux",
+    "natives-linux-arm64",
+    "natives-linux-arm32",
+    "natives-macos",
+    "natives-macos-arm64",
+];
+
+fn host_native_classifier() -> String {
+    let os = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "-arm64"
+    } else if cfg!(target_arch = "x86") {
+        "-x86"
+    } else {
+        ""
+    };
+    format!("natives-{os}{arch}")
+}
+
+/// Библиотеки natives для чужой платформы или архитектуры не нужны: их DLL перезаписали бы нужные
+/// (у x64, arm64 и x86 одинаковые имена файлов).
+fn native_matches_host(name: &str) -> bool {
+    match name.rsplit(':').next() {
+        Some(c) if ARCH_NATIVES.contains(&c) => c == host_native_classifier(),
+        _ => true,
+    }
+}
+
 fn add_job(
     libdir: &Path,
     jobs: &mut Vec<Job>,
@@ -227,7 +266,10 @@ fn add_job(
     sha1: Option<&str>,
     size: Option<u64>,
 ) -> PathBuf {
-    let dest = libdir.join(rel);
+    let mut dest = libdir.to_path_buf();
+    for part in rel.split('/').filter(|p| !p.is_empty()) {
+        dest.push(part);
+    }
     if seen.insert(dest.clone()) {
         jobs.push(Job {
             url: url.to_string(),
@@ -278,6 +320,9 @@ fn collect_libs(root: &Path, v: &Value) -> Libs {
 
         if let Some(dl) = lib.get("downloads") {
             if let Some(a) = dl.get("artifact") {
+                if !native_matches_host(name) {
+                    continue;
+                }
                 if let Some(path) = a["path"].as_str() {
                     let d = add_job(
                         &libdir,
@@ -322,10 +367,12 @@ fn collect_libs(root: &Path, v: &Value) -> Libs {
 }
 
 fn extract_natives(jars: &[PathBuf], dir: &Path) -> Result<()> {
-    let marker = dir.join(".ok");
+    // Маркер «.ok2»: старые папки (с перемешанными DLL разных платформ) распаковываются заново.
+    let marker = dir.join(".ok2");
     if marker.exists() {
         return Ok(());
     }
+    let _ = fs::remove_dir_all(dir);
     fs::create_dir_all(dir)?;
     for j in jars {
         if !j.exists() {
@@ -536,9 +583,20 @@ fn ps(p: &Path) -> String {
 /// Итоговая командная строка: [JVM-аргументы…, главный класс, аргументы игры…]
 pub fn build_args(v: &Value, p: &Prepared, root: &Path, o: &LaunchOpts) -> Vec<String> {
     let sep = if cfg!(windows) { ";" } else { ":" };
+    let raw_jvm = collect_args(&v["arguments"]["jvm"]);
+    // Современные Forge и NeoForge (-DignoreList) подключают клиент сами через patched-jar.
+    // Ванильный «1.21.1.jar» в classpath превращается у них в лишний модуль «_1._21._1»
+    // и ломает запуск («Modules minecraft and _1._21._1 export package…»).
+    let drop_vanilla_jar = raw_jvm.iter().any(|a| a.contains("-DignoreList"));
+    let jar_id = v["_jar"].as_str().unwrap_or("");
+    let vanilla_jar = root
+        .join("versions")
+        .join(jar_id)
+        .join(format!("{jar_id}.jar"));
     let cp = p
         .classpath
         .iter()
+        .filter(|x| !(drop_vanilla_jar && !jar_id.is_empty() && **x == vanilla_jar))
         .map(|x| ps(x))
         .collect::<Vec<_>>()
         .join(sep);
@@ -574,7 +632,7 @@ pub fn build_args(v: &Value, p: &Prepared, root: &Path, o: &LaunchOpts) -> Vec<S
     ];
     jvm.extend(o.extra_jvm.split_whitespace().map(String::from));
 
-    let mut vjvm = collect_args(&v["arguments"]["jvm"]);
+    let mut vjvm = raw_jvm;
     if vjvm.is_empty() {
         vjvm = vec![
             "-Djava.library.path=${natives_directory}".into(),
@@ -682,6 +740,68 @@ mod tests {
         assert_eq!(m["mainClass"], "B");
         assert_eq!(m["id"], "fabric-1");
         assert_eq!(m["_jar"], "1.21.1");
+    }
+
+    #[test]
+    fn modern_forge_does_not_get_vanilla_jar_on_classpath() {
+        let root = PathBuf::from("root");
+        let vanilla = root.join("versions").join("1.21.1").join("1.21.1.jar");
+        let v = json!({
+            "id": "neoforge-21.1.267", "_jar": "1.21.1", "type": "release",
+            "mainClass": "cpw.mods.bootstraplauncher.BootstrapLauncher",
+            "arguments": {
+                "jvm": ["-DignoreList=client-extra,${version_name}.jar", "-cp", "${classpath}"],
+                "game": ["--launchTarget", "forgeclient"]
+            }
+        });
+        let p = Prepared {
+            classpath: vec![PathBuf::from("lib.jar"), vanilla],
+            natives_dir: PathBuf::from("nat"),
+            assets_index: "17".into(),
+            game_assets: PathBuf::from("as"),
+        };
+        let o = LaunchOpts {
+            game_dir: PathBuf::from("gd"),
+            ram_mb: 2048,
+            extra_jvm: String::new(),
+            width: 0,
+            height: 0,
+            fullscreen: false,
+            name: "Steve".into(),
+            uuid: "u".into(),
+        };
+        let a = build_args(&v, &p, &root, &o);
+        let i = a.iter().position(|x| x == "-cp").unwrap();
+        assert_eq!(a[i + 1], "lib.jar");
+    }
+
+    #[test]
+    fn natives_for_other_platforms_are_skipped() {
+        let me = host_native_classifier();
+        assert!(native_matches_host(&format!("org.lwjgl:lwjgl:3.3.3:{me}")));
+        for other in ARCH_NATIVES.iter().filter(|c| **c != me) {
+            assert!(!native_matches_host(&format!("org.lwjgl:lwjgl:3.3.3:{other}")), "{other}");
+        }
+        // обычные библиотеки и особые варианты не трогаем
+        assert!(native_matches_host("com.google.guava:guava:32.1.2-jre"));
+        assert!(native_matches_host("org.lwjgl:lwjgl:3.3.3:natives-macos-patch"));
+    }
+
+    #[test]
+    fn library_paths_use_one_separator() {
+        let mut jobs = vec![];
+        let mut seen = HashSet::new();
+        let d = add_job(
+            Path::new("libs"),
+            &mut jobs,
+            &mut seen,
+            "https://x/a.jar",
+            "net/neoforged/bus/8.0.5/bus-8.0.5.jar",
+            None,
+            None,
+        );
+        let expected: PathBuf = ["libs", "net", "neoforged", "bus", "8.0.5", "bus-8.0.5.jar"].iter().collect();
+        assert_eq!(d, expected);
     }
 
     #[test]
