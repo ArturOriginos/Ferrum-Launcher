@@ -15,37 +15,12 @@
 - **Свои картинки**: любой фон и своя иконка (перетащите файл в окно)
 - **Оформление**: свой цвет интерфейса (любой цвет палитрой), 9 готовых акцентов, 10 палитр фона (в том числе светлые), стиль углов, масштаб 90–150%
 
-## Сборка из исходников
-
-Нужен [Rust](https://rustup.rs) (stable).
-
-```bash
-git clone https://github.com/ArturOriginos/ferrum-launcher
-cd ferrum-launcher
-cargo run --release
-```
-
-Проверка логики: `cargo test`.
-
-На Linux могут понадобиться пакеты: `libxkbcommon-dev libwayland-dev libx11-dev libgl1-mesa-dev`.
-
 ## CurseForge
 
 CurseForge отдаёт моды только по API-ключу. Получите бесплатный ключ на
 <https://console.curseforge.com> и вставьте в **Настройки → Моды**.
 Каждый пользователь вводит свой ключ сам: вшивать ключ в публичные сборки нельзя по правилам CurseForge.
 Modrinth работает без ключа.
-
-## Выпуск версии
-
-1. Поднимите `version` в `Cargo.toml` и допишите `CHANGELOG.md`
-2. Закоммитьте и поставьте тег:
-   ```bash
-   git commit -am "Release v0.1.1"
-   git tag v0.1.1
-   git push && git push --tags
-   ```
-3. GitHub Actions соберёт файлы для Windows, Linux и macOS и приложит их к релизу.
 
 ## Экспорт сборок
 
