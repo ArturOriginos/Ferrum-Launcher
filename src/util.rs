@@ -38,6 +38,19 @@ pub fn slug(name: &str) -> String {
     }
 }
 
+/// Время игры: «12 ч 30 мин».
+pub fn fmt_playtime(secs: u64) -> String {
+    if secs == 0 {
+        "ещё не играли".to_string()
+    } else if secs < 60 {
+        "меньше минуты".to_string()
+    } else if secs < 3600 {
+        format!("{} мин", secs / 60)
+    } else {
+        format!("{} ч {} мин", secs / 3600, (secs % 3600) / 60)
+    }
+}
+
 /// 1234567 -> "1.2M"
 pub fn fmt_num(n: u64) -> String {
     if n >= 1_000_000 {
@@ -57,6 +70,14 @@ mod tests {
     fn slug_makes_safe_names() {
         assert_eq!(slug("My Pack!!"), "my-pack");
         assert_eq!(slug("Сборка"), "instance");
+    }
+
+    #[test]
+    fn playtime_is_readable() {
+        assert_eq!(fmt_playtime(0), "ещё не играли");
+        assert_eq!(fmt_playtime(30), "меньше минуты");
+        assert_eq!(fmt_playtime(25 * 60), "25 мин");
+        assert_eq!(fmt_playtime(3600 * 12 + 30 * 60 + 5), "12 ч 30 мин");
     }
 
     #[test]

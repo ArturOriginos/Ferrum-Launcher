@@ -1,5 +1,6 @@
 //! Оформление: несколько палитр фона и любой акцентный цвет.
 use eframe::egui::{self, Color32, FontFamily, FontId, Rounding, Stroke, TextStyle, Vec2, Visuals};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::RwLock;
 
 const fn c(r: u8, g: u8, b: u8) -> Color32 {
@@ -19,7 +20,7 @@ pub struct Palette {
     pub muted: Color32,
 }
 
-pub const PALETTES: [Palette; 5] = [
+pub const PALETTES: [Palette; 10] = [
     Palette {
         name: "Графит",
         bg: c(20, 22, 24),
@@ -75,15 +76,86 @@ pub const PALETTES: [Palette; 5] = [
         text: c(34, 36, 40),
         muted: c(110, 114, 118),
     },
+    Palette {
+        name: "Амолед",
+        bg: c(0, 0, 0),
+        sidebar: c(0, 0, 0),
+        card: c(14, 14, 16),
+        surface: c(26, 26, 30),
+        hover: c(38, 38, 44),
+        border: c(44, 44, 50),
+        text: c(236, 236, 236),
+        muted: c(136, 136, 144),
+    },
+    Palette {
+        name: "Океан",
+        bg: c(10, 22, 30),
+        sidebar: c(6, 15, 21),
+        card: c(16, 34, 46),
+        surface: c(23, 48, 64),
+        hover: c(32, 64, 84),
+        border: c(36, 72, 92),
+        text: c(224, 238, 244),
+        muted: c(120, 150, 166),
+    },
+    Palette {
+        name: "Сакура",
+        bg: c(250, 238, 242),
+        sidebar: c(243, 226, 232),
+        card: c(255, 250, 252),
+        surface: c(248, 232, 238),
+        hover: c(240, 218, 226),
+        border: c(228, 200, 210),
+        text: c(58, 36, 46),
+        muted: c(140, 110, 122),
+    },
+    Palette {
+        name: "Песок",
+        bg: c(244, 238, 226),
+        sidebar: c(234, 226, 210),
+        card: c(252, 248, 240),
+        surface: c(240, 232, 216),
+        hover: c(228, 218, 198),
+        border: c(212, 200, 178),
+        text: c(52, 44, 32),
+        muted: c(128, 116, 96),
+    },
+    Palette {
+        name: "Неон",
+        bg: c(16, 12, 28),
+        sidebar: c(11, 8, 20),
+        card: c(26, 20, 46),
+        surface: c(38, 30, 66),
+        hover: c(52, 42, 88),
+        border: c(62, 50, 104),
+        text: c(236, 230, 255),
+        muted: c(150, 138, 190),
+    },
 ];
+
+static RADIUS: AtomicU8 = AtomicU8::new(1);
+
+/// 0 — острые углы, 1 — мягкие (по умолчанию), 2 — круглые.
+pub fn set_radius(level: u32) {
+    RADIUS.store(level.min(2) as u8, Ordering::Relaxed);
+}
+
+/// Масштабирует радиус скругления под выбранный стиль.
+pub fn round(x: f32) -> f32 {
+    match RADIUS.load(Ordering::Relaxed) {
+        0 => x * 0.25,
+        2 => x * 1.5,
+        _ => x,
+    }
+}
 
 static CURRENT: RwLock<Palette> = RwLock::new(PALETTES[0]);
 
 pub fn set_palette(idx: usize) {
-    *CURRENT.write().unwrap() = PALETTES[idx.min(PALETTES.len() - 1)];
+    *CURRENT.write().unwrap_or_else(|e| e.into_inner()) = PALETTES[idx.min(PALETTES.len() - 1)];
 }
 fn cur() -> Palette {
-    *CURRENT.read().unwrap()
+    *CURRENT.read().unwrap_or_else(|e| e.into_inner())
 }
 pub fn bg() -> Color32 {
     cur().bg
@@ -117,12 +189,16 @@ pub fn is_light() -> bool {
 pub const DANGER: Color32 = c(232, 93, 93);
 pub const WARN: Color32 = c(235, 180, 70);
 
-pub const ACCENTS: [(&str, Color32); 5] = [
+pub const ACCENTS: [(&str, Color32); 9] = [
     ("Окалина", c(224, 102, 44)),
     ("Патина", c(63, 181, 160)),
     ("Латунь", c(214, 164, 65)),
     ("Кобальт", c(77, 141, 255)),
     ("Вереск", c(167, 123, 216)),
+    ("Роза", c(255, 94, 150)),
+    ("Лайм", c(132, 214, 60)),
+    ("Циан", c(40, 200, 230)),
+    ("Багрянец", c(220, 56, 72)),
 ];
 
 pub fn accent(idx: usize) -> Color32 {
@@ -145,14 +221,14 @@ pub fn apply(ctx: &egui::Context, accent: Color32) {
     v.panel_fill = p.bg;
     v.window_fill = p.card;
     v.window_stroke = Stroke::new(1.0, p.border);
-    v.window_rounding = Rounding::same(16.0);
+    v.window_rounding = Rounding::same(round(16.0));
     v.extreme_bg_color = if is_light() { Color32::WHITE } else { p.sidebar };
     v.faint_bg_color = p.card;
     v.hyperlink_color = accent;
     v.selection.bg_fill = accent.linear_multiply(0.45);
     v.selection.stroke = Stroke::new(1.0, accent);
 
-    let r = Rounding::same(10.0);
+    let r = Rounding::same(round(10.0));
     v.widgets.noninteractive.bg_fill = p.card;
     v.widgets.noninteractive.weak_bg_fill = p.card;
     v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, p.border);
@@ -205,10 +281,25 @@ mod tests {
     }
 
     #[test]
-    fn light_palette_is_detected() {
-        set_palette(4);
-        assert!(is_light());
+    fn light_palettes_are_detected() {
+        // индексы светлых палитр: Светлая, Сакура, Песок
+        for i in 0..PALETTES.len() {
+            set_palette(i);
+            assert_eq!(is_light(), matches!(i, 4 | 8 | 9), "{}", PALETTES[i].name);
+        }
         set_palette(0);
-        assert!(!is_light());
+    }
+
+    #[test]
+    fn corner_styles() {
+        set_radius(0);
+        assert_eq!(round(16.0), 4.0);
+        set_radius(2);
+        assert_eq!(round(16.0), 24.0);
+        set_radius(1);
+        assert_eq!(round(16.0), 16.0);
+        set_radius(99);
+        assert_eq!(round(16.0), 24.0);
+        set_radius(1);
     }
 }

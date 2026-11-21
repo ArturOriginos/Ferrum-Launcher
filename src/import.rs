@@ -162,7 +162,13 @@ pub fn run(
     progress: &Progress,
 ) -> Result<(Instance, Vec<String>)> {
     let info = inspect(path)?;
-    let id = format!("{}-{}", slug(&info.name), now());
+    let base = format!("{}-{}", slug(&info.name), now());
+    let mut id = base.clone();
+    let mut n = 2;
+    while instances_dir().join(&id).exists() {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
     let dir = instances_dir().join(&id);
     match run_inner(http, path, cf_key, progress, &info, &dir) {
         Ok(warnings) => Ok((
@@ -176,6 +182,8 @@ pub fn run(
                 jvm_args: String::new(),
                 last_played: 0,
                 auto_perf: false,
+                playtime_secs: 0,
+                launches: 0,
                 extra: Default::default(),
             },
             warnings,

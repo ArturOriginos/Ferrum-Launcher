@@ -30,6 +30,9 @@ pub fn run(
 ) -> Result<()> {
     let dir = launch_logs_dir();
     fs::create_dir_all(&dir)?;
+    // Старые логи не копятся вечно: храним последние запуски и краши.
+    prune(&dir, 40);
+    prune(&crash_logs_dir(), 20);
     let log_path = dir.join(format!("{}_{}.log", stamp(now()), inst.id));
     note(
         &log_path,
@@ -158,6 +161,24 @@ fn run_inner(
     Ok(())
 }
 
+/// Оставляет в папке только `keep` самых новых записей. Имена начинаются с даты,
+/// поэтому порядок по имени совпадает с порядком по времени.
+fn prune(dir: &Path, keep: usize) {
+    let Ok(rd) = fs::read_dir(dir) else {
+        return;
+    };
+    let mut items: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+    items.sort();
+    let excess = items.len().saturating_sub(keep);
+    for p in items.into_iter().take(excess) {
+        if p.is_dir() {
+            let _ = fs::remove_dir_all(&p);
+        } else {
+            let _ = fs::remove_file(&p);
+        }
+    }
+}
+
 /// На Windows командная строка ограничена ~32 тыс. символов. Если аргументов слишком много,
 /// передаём их через файл @argfile (поддерживается в Java 9+).
 fn launch_args(args: &[String], java_major: u32, game_dir: &Path, log: &Path) -> Result<Vec<String>> {
@@ -241,6 +262,25 @@ mod tests {
             .contains("модулей"));
         assert!(diagnose("UnsupportedClassVersionError: class file version 65").unwrap().contains("Java"));
         assert_eq!(diagnose("всё хорошо"), None);
+    }
+
+    #[test]
+    fn old_logs_are_pruned() {
+        let dir = std::env::temp_dir().join(format!("ferrum-test-prune-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        for n in 1..=5 {
+            fs::write(dir.join(format!("a{n}.log")), b"x").unwrap();
+        }
+        prune(&dir, 2);
+        let mut left: Vec<String> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        left.sort();
+        assert_eq!(left, vec!["a4.log", "a5.log"]);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

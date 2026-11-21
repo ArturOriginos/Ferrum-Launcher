@@ -9,7 +9,7 @@ use crate::mods::{self, InstalledMod, ModHit};
 use crate::net::{self, Progress, ProgressState, Slot};
 use crate::terms;
 use crate::theme;
-use crate::util::{fmt_num, open_path, slug, total_ram_mb};
+use crate::util::{fmt_num, fmt_playtime, open_path, total_ram_mb};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Frame, Layout, Margin, RichText, Sense, Stroke,
     TextEdit,
@@ -71,7 +71,7 @@ pub struct App {
     dirty: bool,
     msg: String,
     sys_ram_mb: u32,
-    applied: (Color32, usize),
+    applied: (Color32, usize, u32),
     applied_zoom: f32,
 
     // версии Minecraft
@@ -121,6 +121,10 @@ pub struct App {
     export_progress: Option<Progress>,
     export_slot: Slot<Result<export::ExportResult, String>>,
 
+    // время игры
+    running_inst: Option<String>,
+    counted_secs: u64,
+
     // скины
     faces: std::collections::HashMap<String, egui::TextureHandle>,
     skin_edit: Option<String>,
@@ -135,6 +139,7 @@ impl App {
         cfg.save();
         let http = net::http_client();
         theme::set_palette(cfg.settings.palette);
+        theme::set_radius(cfg.settings.radius);
         let accent0 = accent_of(&cfg.settings);
         theme::apply(&cc.egui_ctx, accent0);
         cc.egui_ctx.set_zoom_factor(cfg.settings.ui_scale);
@@ -142,11 +147,13 @@ impl App {
         let versions_slot: Slot<Result<Vec<McVersion>, String>> = Slot::new();
         {
             let (h, s) = (http.clone(), versions_slot.clone());
-            std::thread::spawn(move || {
-                s.put(minecraft::fetch_versions(&h).map_err(|e| format!("{e:#}")));
-            });
+            let s2 = s.clone();
+            net::spawn_guarded(
+                move |m| s2.put(Err(m)),
+                move || s.put(minecraft::fetch_versions(&h).map_err(|e| format!("{e:#}"))),
+            );
         }
-        let applied = (accent0, cfg.settings.palette);
+        let applied = (accent0, cfg.settings.palette, cfg.settings.radius);
         let applied_zoom = cfg.settings.ui_scale;
         let icon = cc.egui_ctx.load_texture(
             "app-icon",
@@ -198,6 +205,8 @@ impl App {
             skin_edit: None,
             skin_path_input: String::new(),
             skin_msg: None,
+            running_inst: None,
+            counted_secs: 0,
         };
         let uuids: Vec<String> = app.cfg.accounts.iter().map(|a| a.uuid.clone()).collect();
         for u in uuids {
@@ -360,11 +369,18 @@ impl App {
         self.export_progress = Some(progress.clone());
         let http = self.http.clone();
         let slot = self.export_slot.clone();
-        std::thread::spawn(move || {
-            let r = export::run(&http, &inst, &opts, &progress).map_err(|e| format!("{e:#}"));
-            progress.finish("");
-            slot.put(r);
-        });
+        let (slot2, progress2) = (slot.clone(), progress.clone());
+        net::spawn_guarded(
+            move |m| {
+                progress2.finish("");
+                slot2.put(Err(m));
+            },
+            move || {
+                let r = export::run(&http, &inst, &opts, &progress).map_err(|e| format!("{e:#}"));
+                progress.finish("");
+                slot.put(r);
+            },
+        );
     }
 
     fn export_window(&mut self, ctx: &egui::Context) {
@@ -518,11 +534,18 @@ impl App {
         let http = self.http.clone();
         let key = mods::curseforge_key(&self.cfg.settings.curseforge_key);
         let slot = self.import_slot.clone();
-        std::thread::spawn(move || {
-            let r = import::run(&http, &path, &key, &progress).map_err(|e| format!("{e:#}"));
-            progress.finish("");
-            slot.put(r);
-        });
+        let (slot2, progress2) = (slot.clone(), progress.clone());
+        net::spawn_guarded(
+            move |m| {
+                progress2.finish("");
+                slot2.put(Err(m));
+            },
+            move || {
+                let r = import::run(&http, &path, &key, &progress).map_err(|e| format!("{e:#}"));
+                progress.finish("");
+                slot.put(r);
+            },
+        );
     }
 
     fn import_window(&mut self, ctx: &egui::Context) {
@@ -642,6 +665,27 @@ impl App {
         }
     }
 
+    // ---------- время игры ----------
+
+    fn add_playtime(&mut self, id: &str, secs: u64) {
+        if secs == 0 {
+            return;
+        }
+        if let Some(i) = self.cfg.instances.iter_mut().find(|i| i.id == id) {
+            i.playtime_secs = i.playtime_secs.saturating_add(secs);
+            self.dirty = true;
+        }
+    }
+
+    /// Сборка сейчас запускается или в неё идёт игра.
+    fn is_busy_with(&self, id: &str) -> bool {
+        let busy = self.progress.as_ref().map_or(false, |p| {
+            let s = p.snapshot();
+            s.busy || s.running
+        });
+        busy && self.running_inst.as_deref() == Some(id)
+    }
+
     fn accent(&self) -> Color32 {
         accent_of(&self.cfg.settings)
     }
@@ -739,19 +783,26 @@ impl App {
             return;
         };
         self.msg.clear();
+        self.running_inst = Some(inst.id.clone());
+        self.counted_secs = 0;
         let progress = Progress::new();
         self.progress = Some(progress.clone());
         if let Some(i) = self.cfg.instances.iter_mut().find(|i| i.id == inst.id) {
             i.last_played = now();
+            i.launches = i.launches.saturating_add(1);
         }
         self.cfg.save();
         let http = self.http.clone();
         let st = self.cfg.settings.clone();
-        std::thread::spawn(move || {
-            if let Err(e) = launch::run(&http, &st, &inst, &acc, &progress) {
-                progress.fail(format!("{e:#}"));
-            }
-        });
+        let progress2 = progress.clone();
+        net::spawn_guarded(
+            move |m| progress2.fail(m),
+            move || {
+                if let Err(e) = launch::run(&http, &st, &inst, &acc, &progress) {
+                    progress.fail(format!("{e:#}"));
+                }
+            },
+        );
     }
 
     fn new_form(&self) -> InstanceForm {
@@ -814,7 +865,7 @@ impl App {
             }
             None => {
                 let inst = Instance {
-                    id: format!("{}-{}", slug(&name), now()),
+                    id: unique_instance_id(&name, &self.cfg.instances),
                     name,
                     mc_version: f.mc.trim().to_string(),
                     loader: f.loader,
@@ -823,6 +874,8 @@ impl App {
                     jvm_args: f.jvm.trim().to_string(),
                     last_played: 0,
                     auto_perf: f.auto_perf,
+                    playtime_secs: 0,
+                    launches: 0,
                     extra: Default::default(),
                 };
                 let _ = std::fs::create_dir_all(inst.mods_dir());
@@ -866,10 +919,14 @@ impl App {
         let key = mods::curseforge_key(&self.cfg.settings.curseforge_key);
         let q = self.mod_query.trim().to_string();
         let (mc, loader) = (inst.mc_version.clone(), inst.loader);
-        std::thread::spawn(move || {
-            let r = mods::search(&http, source, &key, &q, &mc, loader).map_err(|e| format!("{e:#}"));
-            slot.put(r);
-        });
+        let slot2 = slot.clone();
+        net::spawn_guarded(
+            move |m| slot2.put(Err(m)),
+            move || {
+                let r = mods::search(&http, source, &key, &q, &mc, loader).map_err(|e| format!("{e:#}"));
+                slot.put(r);
+            },
+        );
     }
 
     fn start_install(&mut self, inst: &Instance, hit: ModHit) {
@@ -879,13 +936,17 @@ impl App {
         let slot = self.mod_msg_slot.clone();
         let key = mods::curseforge_key(&self.cfg.settings.curseforge_key);
         let (mc, loader, dir) = (inst.mc_version.clone(), inst.loader, inst.mods_dir());
-        std::thread::spawn(move || {
-            let r = mods::install(&http, hit.source, &key, &hit.id, &mc, loader, &dir);
-            slot.put(match r {
-                Ok(log) => format!("Установлено: {}", log.join(", ")),
-                Err(e) => format!("Ошибка: {e:#}"),
-            });
-        });
+        let slot2 = slot.clone();
+        net::spawn_guarded(
+            move |m| slot2.put(m),
+            move || {
+                let r = mods::install(&http, hit.source, &key, &hit.id, &mc, loader, &dir);
+                slot.put(match r {
+                    Ok(log) => format!("Установлено: {}", log.join(", ")),
+                    Err(e) => format!("Ошибка: {e:#}"),
+                });
+            },
+        );
     }
 
     // ---------- боковая панель ----------
@@ -930,7 +991,7 @@ impl App {
                     if let Some((name, temp)) = &acc {
                         let r = Frame::none()
                             .fill(theme::card())
-                            .rounding(14.0)
+                            .rounding(theme::round(14.0))
                             .inner_margin(Margin::same(10.0))
                             .stroke(Stroke::new(1.0, theme::border()))
                             .show(ui, |ui| {
@@ -1041,6 +1102,7 @@ impl App {
         let accent = self.accent();
         let bg = self.bg_tex.as_ref().map(|t| (t.id(), t.size()));
         let dim = self.cfg.settings.bg_dim.min(95);
+        let glow = self.cfg.settings.glow;
         egui::CentralPanel::default()
             .frame(Frame::none().fill(theme::bg()).inner_margin(Margin::same(28.0)))
             .show(ctx, |ui| {
@@ -1075,7 +1137,7 @@ impl App {
                 }
                 // мягкое свечение акцентного цвета сверху страницы
                 let rect = ui.max_rect().expand(28.0);
-                let alpha = if theme::is_light() { 34 } else { 40 };
+                let alpha = if !glow { 0 } else if theme::is_light() { 34 } else { 40 };
                 let c1 = Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), alpha);
                 let c0 = Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), 0);
                 let (l, r, t) = (rect.left(), rect.right(), rect.top());
@@ -1111,7 +1173,14 @@ impl App {
                 ui.label(muted(if self.cfg.instances.is_empty() {
                     "Создайте первую сборку: версия игры, загрузчик модов, память".to_string()
                 } else {
-                    format!("Всего: {}. Выберите сборку и нажмите «Играть»", self.cfg.instances.len())
+                    {
+                        let total: u64 = self.cfg.instances.iter().map(|i| i.playtime_secs).sum();
+                        let mut t = format!("Всего: {}. Выберите сборку и нажмите «Играть»", self.cfg.instances.len());
+                        if total > 0 {
+                            t.push_str(&format!("  •  наиграно {}", fmt_playtime(total)));
+                        }
+                        t
+                    }
                 }));
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1128,8 +1197,14 @@ impl App {
         let mut edit: Option<Instance> = None;
         let mut export_req: Option<Instance> = None;
         if let Some(inst) = self.selected_instance().cloned() {
+            let busy_this = self.is_busy_with(&inst.id);
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&inst.name).size(16.0).color(theme::text()));
+                ui.label(muted(format!(
+                    "наиграно {}  •  запусков {}",
+                    fmt_playtime(inst.playtime_secs),
+                    inst.launches
+                )));
                 if ui.button("Изменить").clicked() {
                     edit = Some(inst.clone());
                 }
@@ -1139,7 +1214,11 @@ impl App {
                 if ui.button("Экспорт").clicked() {
                     export_req = Some(inst.clone());
                 }
-                if ui.button("Удалить").clicked() {
+                if ui
+                    .add_enabled(!busy_this, egui::Button::new("Удалить"))
+                    .on_disabled_hover_text("Сборка запускается или в ней идёт игра")
+                    .clicked()
+                {
                     self.confirm_delete = Some(inst.id.clone());
                 }
             });
@@ -1833,6 +1912,20 @@ impl App {
             });
 
             ui.add_space(4.0);
+            ui.label("Скругление углов");
+            ui.horizontal(|ui| {
+                for (label, v) in [("Острые", 0u32), ("Мягкие", 1), ("Круглые", 2)] {
+                    if ui.selectable_label(s.radius == v, label).clicked() {
+                        s.radius = v;
+                        ch = true;
+                    }
+                }
+            });
+            ch |= ui
+                .checkbox(&mut s.glow, "Свечение акцентного цвета сверху страницы")
+                .changed();
+
+            ui.add_space(4.0);
             ui.label("Масштаб интерфейса");
             ui.horizontal(|ui| {
                 for (label, v) in [("90%", 0.9_f32), ("100%", 1.0), ("110%", 1.1), ("125%", 1.25), ("150%", 1.5)] {
@@ -1847,6 +1940,8 @@ impl App {
                 s.accent = 0;
                 s.palette = 0;
                 s.ui_scale = 1.0;
+                s.radius = 1;
+                s.glow = true;
                 ch = true;
             }
         });
@@ -1929,9 +2024,10 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let key = (self.accent(), self.cfg.settings.palette);
+        let key = (self.accent(), self.cfg.settings.palette, self.cfg.settings.radius);
         if key != self.applied {
             theme::set_palette(self.cfg.settings.palette);
+            theme::set_radius(self.cfg.settings.radius);
             theme::apply(ctx, key.0);
             self.applied = key;
         }
@@ -1990,6 +2086,23 @@ impl eframe::App for App {
             self.prev_running = s.running;
         }
 
+        // время игры: пока идёт игра, дописываем каждые 30 с, при выходе сверяем точное значение
+        if let Some(sn) = &snap {
+            if let (Some(start), Some(id)) = (sn.play_started, self.running_inst.clone()) {
+                if sn.running {
+                    let elapsed = now().saturating_sub(start);
+                    if elapsed >= self.counted_secs + 30 {
+                        self.add_playtime(&id, elapsed - self.counted_secs);
+                        self.counted_secs = elapsed;
+                    }
+                } else {
+                    self.add_playtime(&id, sn.played_secs.saturating_sub(self.counted_secs));
+                    self.running_inst = None;
+                    self.counted_secs = 0;
+                }
+            }
+        }
+
         self.sidebar(ctx);
         self.bottom_bar(ctx, snap.as_ref());
         self.central(ctx);
@@ -2025,7 +2138,7 @@ fn accent_btn(ui: &mut egui::Ui, text: &str, accent: Color32) -> egui::Response 
                 .color(theme::on_accent(accent)),
         )
         .fill(accent)
-        .rounding(10.0)
+        .rounding(theme::round(10.0))
         .min_size(vec2(0.0, 34.0)),
     )
 }
@@ -2037,7 +2150,7 @@ fn muted(text: impl Into<String>) -> RichText {
 fn card_frame(selected: bool, accent: Color32) -> Frame {
     Frame::none()
         .fill(theme::card())
-        .rounding(14.0)
+        .rounding(theme::round(14.0))
         .inner_margin(Margin::same(16.0))
         .stroke(Stroke::new(
             if selected { 2.0 } else { 1.0 },
@@ -2048,7 +2161,7 @@ fn card_frame(selected: bool, accent: Color32) -> Frame {
 fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
     Frame::none()
         .fill(theme::card())
-        .rounding(14.0)
+        .rounding(theme::round(14.0))
         .inner_margin(Margin::same(18.0))
         .stroke(Stroke::new(1.0, theme::border()))
         .show(ui, |ui| {
@@ -2144,10 +2257,10 @@ fn nav_item(ui: &mut egui::Ui, icon: Icon, label: &str, selected: bool, accent: 
     {
         let p = ui.painter();
         if selected {
-            p.rect_filled(rect.expand(2.0), 14.0, accent.linear_multiply(0.18));
-            p.rect_filled(rect, 12.0, accent);
+            p.rect_filled(rect.expand(2.0), theme::round(14.0), accent.linear_multiply(0.18));
+            p.rect_filled(rect, theme::round(12.0), accent);
         } else if t > 0.01 {
-            p.rect_filled(rect, 12.0, theme::hover().linear_multiply(t));
+            p.rect_filled(rect, theme::round(12.0), theme::hover().linear_multiply(t));
         }
         paint_icon(p, icon, egui::pos2(rect.left() + 26.0, rect.center().y), fg);
         p.text(
@@ -2177,7 +2290,7 @@ fn loader_color(l: Loader) -> Color32 {
 fn paint_chip(p: &egui::Painter, pos: egui::Pos2, text: &str, fg: Color32, bg: Color32) -> f32 {
     let g = p.layout_no_wrap(text.to_string(), FontId::proportional(12.5), fg);
     let size = g.size() + vec2(16.0, 8.0);
-    p.rect_filled(egui::Rect::from_min_size(pos, size), 8.0, bg);
+    p.rect_filled(egui::Rect::from_min_size(pos, size), theme::round(8.0), bg);
     p.galley(pos + vec2(8.0, 4.0), g, fg);
     size.x
 }
@@ -2205,7 +2318,7 @@ fn instance_card(
     selected: bool,
     accent: Color32,
 ) -> egui::Response {
-    let (rect0, resp) = ui.allocate_exact_size(vec2(268.0, 124.0), Sense::click());
+    let (rect0, resp) = ui.allocate_exact_size(vec2(268.0, 142.0), Sense::click());
     let t = ui.ctx().animate_bool(resp.id, resp.hovered());
     let st = ui.ctx().animate_bool(resp.id.with("sel"), selected);
     let rect = rect0.translate(vec2(0.0, -2.0 * t));
@@ -2213,16 +2326,16 @@ fn instance_card(
         let p = ui.painter();
         p.rect_filled(
             rect.translate(vec2(0.0, 4.0)),
-            16.0,
+            theme::round(16.0),
             Color32::from_black_alpha((34.0 + 36.0 * t) as u8),
         );
-        p.rect_filled(rect, 16.0, theme::card().lerp_to_gamma(theme::hover(), t * 0.6));
+        p.rect_filled(rect, theme::round(16.0), theme::card().lerp_to_gamma(theme::hover(), t * 0.6));
         let border = theme::border().lerp_to_gamma(accent, st.max(t * 0.5));
-        p.rect_stroke(rect, 16.0, Stroke::new(1.0 + st, border));
+        p.rect_stroke(rect, theme::round(16.0), Stroke::new(1.0 + st, border));
 
         // эмблема с первой буквой
         let em = egui::Rect::from_min_size(rect.min + vec2(16.0, 16.0), vec2(48.0, 48.0));
-        p.rect_filled(em, 13.0, accent.linear_multiply(0.22));
+        p.rect_filled(em, theme::round(13.0), accent.linear_multiply(0.22));
         let letter = inst
             .name
             .chars()
@@ -2242,7 +2355,15 @@ fn instance_card(
             FontId::proportional(17.0),
             theme::text(),
         );
-        let lc = loader_color(inst.loader);
+        // на светлых палитрах метки загрузчика темнее, иначе их не прочитать
+        let lc = {
+            let c = loader_color(inst.loader);
+            if theme::is_light() {
+                Color32::from_rgb((c.r() as f32 * 0.62) as u8, (c.g() as f32 * 0.62) as u8, (c.b() as f32 * 0.62) as u8)
+            } else {
+                c
+            }
+        };
         let w = paint_chip(
             p,
             rect.min + vec2(76.0, 42.0),
@@ -2258,7 +2379,14 @@ fn instance_card(
             Color32::from_rgba_unmultiplied(lc.r(), lc.g(), lc.b(), 46),
         );
         p.text(
-            rect.min + vec2(16.0, 92.0),
+            rect.min + vec2(16.0, 88.0),
+            Align2::LEFT_TOP,
+            format!("Наиграно: {}", fmt_playtime(inst.playtime_secs)),
+            FontId::proportional(13.0),
+            theme::text(),
+        );
+        p.text(
+            rect.min + vec2(16.0, 110.0),
             Align2::LEFT_TOP,
             format!("Память {:.1} ГБ  •  {}", ram_mb as f32 / 1024.0, ago(inst.last_played)),
             FontId::proportional(12.5),
@@ -2272,12 +2400,12 @@ fn instance_card(
 }
 
 fn add_card(ui: &mut egui::Ui, accent: Color32) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(268.0, 124.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(268.0, 142.0), Sense::click());
     let t = ui.ctx().animate_bool(resp.id, resp.hovered());
     {
         let p = ui.painter();
-        p.rect_filled(rect, 16.0, accent.linear_multiply(0.05 + 0.07 * t));
-        p.rect_stroke(rect, 16.0, Stroke::new(1.5, theme::border().lerp_to_gamma(accent, t)));
+        p.rect_filled(rect, theme::round(16.0), accent.linear_multiply(0.05 + 0.07 * t));
+        p.rect_stroke(rect, theme::round(16.0), Stroke::new(1.5, theme::border().lerp_to_gamma(accent, t)));
         let c = rect.center() - vec2(0.0, 10.0);
         let st = Stroke::new(2.5, accent);
         p.line_segment([c + vec2(-10.0, 0.0), c + vec2(10.0, 0.0)], st);
@@ -2309,9 +2437,9 @@ fn play_button(ui: &mut egui::Ui, text: &str, enabled: bool, accent: Color32) ->
         };
         let fg = if enabled { theme::on_accent(accent) } else { theme::muted() };
         if enabled {
-            p.rect_filled(rect.expand(3.0 + 3.0 * t), 19.0, accent.linear_multiply(0.16 + 0.12 * t));
+            p.rect_filled(rect.expand(3.0 + 3.0 * t), theme::round(19.0), accent.linear_multiply(0.16 + 0.12 * t));
         }
-        p.rect_filled(rect, 15.0, fill);
+        p.rect_filled(rect, theme::round(15.0), fill);
         let mut cx = rect.center().x;
         if enabled {
             let c = egui::pos2(rect.left() + 54.0, rect.center().y);

@@ -10,6 +10,24 @@ use std::{
     time::Duration,
 };
 
+/// Запускает работу в потоке и превращает панику в обычную ошибку, чтобы интерфейс не завис
+/// в состоянии «идёт загрузка».
+pub fn spawn_guarded(
+    on_panic: impl FnOnce(String) + Send + 'static,
+    f: impl FnOnce() + Send + 'static,
+) {
+    std::thread::spawn(move || {
+        if let Err(p) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+            let msg = p
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| p.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "неизвестная ошибка".to_string());
+            on_panic(format!("Внутренняя ошибка лаунчера: {msg}"));
+        }
+    });
+}
+
 pub fn http_client() -> Client {
     Client::builder()
         .user_agent(format!(
@@ -41,10 +59,10 @@ impl<T> Slot<T> {
         Slot(Arc::new(Mutex::new(None)))
     }
     pub fn put(&self, v: T) {
-        *self.0.lock().unwrap() = Some(v);
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(v);
     }
     pub fn take(&self) -> Option<T> {
-        self.0.lock().unwrap().take()
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).take()
     }
 }
 
@@ -64,6 +82,9 @@ pub struct ProgressState {
     pub error: Option<String>,
     pub busy: bool,
     pub running: bool,
+    /// Когда игра запустилась (unix-секунды) и сколько длилась сессия (заполняется при выходе).
+    pub play_started: Option<u64>,
+    pub played_secs: u64,
 }
 
 #[derive(Clone, Default)]
@@ -72,42 +93,49 @@ pub struct Progress(Arc<Mutex<ProgressState>>);
 impl Progress {
     pub fn new() -> Self {
         let p = Self::default();
-        p.0.lock().unwrap().busy = true;
+        p.0.lock().unwrap_or_else(|e| e.into_inner()).busy = true;
         p
     }
     /// Начало нового этапа: подпись и сброс счётчиков.
     pub fn label(&self, s: impl Into<String>) {
-        let mut g = self.0.lock().unwrap();
+        let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
         g.label = s.into();
         g.done = 0;
         g.total = 0;
     }
     pub fn add_total(&self, n: usize) {
-        self.0.lock().unwrap().total += n;
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).total += n;
     }
     pub fn tick(&self) {
-        self.0.lock().unwrap().done += 1;
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).done += 1;
     }
     pub fn fail(&self, e: impl Into<String>) {
-        let mut g = self.0.lock().unwrap();
+        let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
         g.error = Some(e.into());
         g.busy = false;
         g.running = false;
+        if let Some(st) = g.play_started {
+            g.played_secs = crate::config::now().saturating_sub(st);
+        }
     }
     pub fn running(&self, s: impl Into<String>) {
-        let mut g = self.0.lock().unwrap();
+        let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
         g.label = s.into();
         g.busy = false;
         g.running = true;
+        g.play_started = Some(crate::config::now());
     }
     pub fn finish(&self, s: impl Into<String>) {
-        let mut g = self.0.lock().unwrap();
+        let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
         g.label = s.into();
         g.busy = false;
         g.running = false;
+        if let Some(st) = g.play_started {
+            g.played_secs = crate::config::now().saturating_sub(st);
+        }
     }
     pub fn snapshot(&self) -> ProgressState {
-        self.0.lock().unwrap().clone()
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 }
 
@@ -135,7 +163,10 @@ pub fn download(http: &Client, j: &Job) -> Result<()> {
         fs::create_dir_all(p)?;
     }
     let mut last: Option<anyhow::Error> = None;
-    for _ in 0..3 {
+    for attempt in 0..3u64 {
+        if attempt > 0 {
+            std::thread::sleep(Duration::from_millis(500 * attempt));
+        }
         let res = http
             .get(&j.url)
             .send()
@@ -192,6 +223,32 @@ mod tests {
         s.put(5);
         assert_eq!(s.take(), Some(5));
         assert!(s.take().is_none());
+    }
+
+    #[test]
+    fn play_time_is_recorded_on_finish() {
+        let p = Progress::new();
+        p.running("Игра запущена");
+        assert!(p.snapshot().play_started.is_some());
+        p.finish("Игра закрыта");
+        let s = p.snapshot();
+        assert!(!s.running);
+        assert!(s.played_secs < 5);
+    }
+
+    #[test]
+    fn guarded_thread_reports_panic() {
+        let slot: Slot<String> = Slot::new();
+        let s2 = slot.clone();
+        spawn_guarded(move |m| s2.put(m), || panic!("тест"));
+        for _ in 0..100 {
+            if let Some(m) = slot.take() {
+                assert!(m.contains("тест"), "{m}");
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        panic!("паника не дошла до обработчика");
     }
 
     #[test]

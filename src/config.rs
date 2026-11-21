@@ -54,6 +54,18 @@ pub fn data_dir() -> PathBuf {
 pub fn game_root() -> PathBuf {
     data_dir().join("minecraft")
 }
+/// Свободный id для новой сборки: не совпадает ни с другими сборками, ни с папкой на диске.
+pub fn unique_instance_id(name: &str, existing: &[Instance]) -> String {
+    let base = format!("{}-{}", crate::util::slug(name), now());
+    let mut id = base.clone();
+    let mut n = 2;
+    while existing.iter().any(|i| i.id == id) || instances_dir().join(&id).exists() {
+        id = format!("{base}-{n}");
+        n += 1;
+    }
+    id
+}
+
 pub fn instances_dir() -> PathBuf {
     data_dir().join("instances")
 }
@@ -162,6 +174,9 @@ pub struct Settings {
     pub palette: usize,
     /// Масштаб интерфейса: 0.9 … 1.5
     pub ui_scale: f32,
+    /// Скругление углов: 0 острые, 1 мягкие, 2 круглые. И свечение акцента сверху страницы.
+    pub radius: u32,
+    pub glow: bool,
     /// Свой фон интерфейса и затемнение поверх него, %.
     pub has_bg: bool,
     pub bg_dim: u32,
@@ -191,6 +206,8 @@ impl Default for Settings {
             custom_accent: [224, 102, 44],
             palette: 0,
             ui_scale: 1.0,
+            radius: 1,
+            glow: true,
             has_bg: false,
             bg_dim: 72,
             has_icon: false,
@@ -222,6 +239,11 @@ pub struct Instance {
     /// У сборок, созданных старыми версиями, поля нет: для них выключено, ничего не ставится само.
     #[serde(default)]
     pub auto_perf: bool,
+    /// Сколько секунд наиграно в этой сборке и сколько раз её запускали.
+    #[serde(default)]
+    pub playtime_secs: u64,
+    #[serde(default)]
+    pub launches: u32,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -451,6 +473,17 @@ mod tests {
         let cfg = parse_lenient(text).unwrap();
         assert_eq!(cfg.instances.len(), 1);
         assert_eq!(cfg.instances[0].id, "ok");
+    }
+
+    #[test]
+    fn new_instance_ids_never_collide() {
+        let first = unique_instance_id("Pack", &[]);
+        let inst: Instance = serde_json::from_value(serde_json::json!({
+            "id": first, "name": "Pack", "mc_version": "1.21.1", "loader": "Fabric"
+        }))
+        .unwrap();
+        let second = unique_instance_id("Pack", &[inst]);
+        assert_ne!(first, second);
     }
 
     #[test]

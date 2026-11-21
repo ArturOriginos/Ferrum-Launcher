@@ -443,10 +443,10 @@ fn prepare_assets(
     let mut seen = HashSet::new();
     for (_, o) in objects {
         let Some(h) = o["hash"].as_str() else { continue };
-        if h.len() < 2 || !seen.insert(h.to_string()) {
+        let Some(pre) = h.get(..2) else { continue };
+        if !seen.insert(h.to_string()) {
             continue;
         }
-        let pre = &h[..2];
         jobs.push(Job {
             url: format!("https://resources.download.minecraft.net/{pre}/{h}"),
             dest: assets.join("objects").join(pre).join(h),
@@ -473,7 +473,7 @@ fn prepare_assets(
                     if let Some(p) = dest.parent() {
                         fs::create_dir_all(p)?;
                     }
-                    fs::copy(assets.join("objects").join(&h[..2]).join(h), &dest)?;
+                    fs::copy(assets.join("objects").join(h.get(..2).unwrap_or("00")).join(h), &dest)?;
                 }
             }
         }

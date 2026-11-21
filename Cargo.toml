@@ -1,6 +1,6 @@
 [package]
 name = "ferrum-launcher"
-version = "0.6.1"
+version = "0.7.0"
 authors = ["ArturOriginos"]
 edition = "2021"
 description = "Лаунчер Minecraft на Rust: сборки, ОЗУ, моды из Modrinth и CurseForge, временные аккаунты"
