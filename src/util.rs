@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::process::Command;
 
-/// Открывает папку в проводнике системы.
+/// Opens a folder in the system file manager.
 pub fn open_path(p: &Path) {
     let _ = std::fs::create_dir_all(p);
     #[cfg(target_os = "windows")]
@@ -12,7 +12,7 @@ pub fn open_path(p: &Path) {
     let _ = Command::new("xdg-open").arg(p).spawn();
 }
 
-/// Всего оперативной памяти в системе, МБ.
+/// Total system RAM, in MB.
 pub fn total_ram_mb() -> u32 {
     let mut s = sysinfo::System::new();
     s.refresh_memory();
@@ -24,7 +24,7 @@ pub fn total_ram_mb() -> u32 {
     }
 }
 
-/// Безопасное имя папки из названия сборки.
+/// Safe folder name derived from the instance name.
 pub fn slug(name: &str) -> String {
     let s: String = name
         .chars()
@@ -38,16 +38,16 @@ pub fn slug(name: &str) -> String {
     }
 }
 
-/// Время игры: «12 ч 30 мин».
+/// Play time: “12h 30m”.
 pub fn fmt_playtime(secs: u64) -> String {
     if secs == 0 {
-        "ещё не играли".to_string()
+        "not played yet".to_string()
     } else if secs < 60 {
-        "меньше минуты".to_string()
+        "under a minute".to_string()
     } else if secs < 3600 {
-        format!("{} мин", secs / 60)
+        format!("{} min", secs / 60)
     } else {
-        format!("{} ч {} мин", secs / 3600, (secs % 3600) / 60)
+        format!("{}h {}m", secs / 3600, (secs % 3600) / 60)
     }
 }
 
@@ -74,10 +74,10 @@ mod tests {
 
     #[test]
     fn playtime_is_readable() {
-        assert_eq!(fmt_playtime(0), "ещё не играли");
-        assert_eq!(fmt_playtime(30), "меньше минуты");
-        assert_eq!(fmt_playtime(25 * 60), "25 мин");
-        assert_eq!(fmt_playtime(3600 * 12 + 30 * 60 + 5), "12 ч 30 мин");
+        assert_eq!(fmt_playtime(0), "not played yet");
+        assert_eq!(fmt_playtime(30), "under a minute");
+        assert_eq!(fmt_playtime(25 * 60), "25 min");
+        assert_eq!(fmt_playtime(3600 * 12 + 30 * 60 + 5), "12h 30m");
     }
 
     #[test]

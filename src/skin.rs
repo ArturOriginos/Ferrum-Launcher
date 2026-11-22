@@ -1,4 +1,4 @@
-//! Скины для офлайн-аккаунтов. Показывает их мод CustomSkinLoader (ставится автоматически).
+//! Skins for offline accounts. They are shown by the CustomSkinLoader mod (installed automatically).
 use crate::config::{data_dir, Account, Instance, Loader, ModSource};
 use crate::{mods, perf};
 use anyhow::{anyhow, bail, Result};
@@ -13,7 +13,7 @@ use std::{
 const MAX_BYTES: u64 = 200 * 1024;
 
 pub const SKIN_RULES: &str =
-    "PNG  •  строго 64×64 или 64×32 пикселя  •  до 200 КБ. Скин виден только в вашей игре.";
+    "PNG  •  strictly 64×64 or 64×32 pixels  •  up to 200 KB. The skin is only visible in your own game.";
 
 fn skins_dir() -> PathBuf {
     data_dir().join("skins")
@@ -32,9 +32,9 @@ pub fn remove(uuid: &str) {
 }
 
 pub fn set(uuid: &str, src: &Path) -> Result<()> {
-    let meta = fs::metadata(src).map_err(|_| anyhow!("Файл не найден: {}", src.display()))?;
+    let meta = fs::metadata(src).map_err(|_| anyhow!("File not found: {}", src.display()))?;
     if !meta.is_file() {
-        bail!("Это не файл: {}", src.display());
+        bail!("Not a file: {}", src.display());
     }
     let ext = src
         .extension()
@@ -42,22 +42,22 @@ pub fn set(uuid: &str, src: &Path) -> Result<()> {
         .unwrap_or("")
         .to_lowercase();
     if ext != "png" {
-        bail!("Скин должен быть в формате PNG, а у файла «.{ext}»");
+        bail!("The skin must be a PNG, but the file is '.{ext}'");
     }
     if meta.len() > MAX_BYTES {
-        bail!("Файл слишком большой: {} КБ, максимум 200 КБ", meta.len() / 1024);
+        bail!("File is too large: {} KB, maximum 200 KB", meta.len() / 1024);
     }
-    let img = image::open(src).map_err(|e| anyhow!("Не удалось прочитать картинку: {e}"))?;
+    let img = image::open(src).map_err(|e| anyhow!("Could not read the image: {e}"))?;
     let (w, h) = img.dimensions();
     if !((w, h) == (64, 64) || (w, h) == (64, 32)) {
-        bail!("Скин должен быть 64×64 или 64×32 пикселя, а у файла {w}×{h}");
+        bail!("The skin must be 64×64 or 64×32 pixels, but the file is {w}×{h}");
     }
     fs::create_dir_all(skins_dir())?;
     img.save_with_format(skin_path(uuid), ImageFormat::Png)
-        .map_err(|e| anyhow!("Не удалось сохранить скин: {e}"))
+        .map_err(|e| anyhow!("Could not save the skin: {e}"))
 }
 
-/// Лицо игрока (голова + внешний слой), увеличенное для аватарки.
+/// The player's face (head + outer layer), enlarged for the avatar.
 pub fn load_face(uuid: &str) -> Option<egui::ColorImage> {
     let img = image::open(skin_path(uuid)).ok()?.to_rgba8();
     if img.width() < 64 || img.height() < 16 {
@@ -78,8 +78,8 @@ pub fn load_face(uuid: &str) -> Option<egui::ColorImage> {
     Some(egui::ColorImage::from_rgba_unmultiplied([64, 64], big.as_raw()))
 }
 
-/// Перед запуском: кладёт скин в сборку и ставит CustomSkinLoader, если его ещё нет.
-/// Возвращает строку для лога или None, если у аккаунта нет скина.
+/// Before launch: puts the skin into the instance and installs CustomSkinLoader if it isn't there yet.
+/// Returns a line for the log, or None if the account has no skin.
 pub fn prepare_instance(http: &Client, inst: &Instance, acc: &Account) -> Result<Option<String>> {
     let src = skin_path(&acc.uuid);
     if !src.is_file() {
@@ -87,7 +87,7 @@ pub fn prepare_instance(http: &Client, inst: &Instance, acc: &Account) -> Result
     }
     if inst.loader == Loader::Vanilla {
         return Ok(Some(
-            "Скин не применён: в Vanilla нет загрузчика модов (выберите Fabric, Quilt, Forge или NeoForge)".to_string(),
+            "Skin not applied: Vanilla has no mod loader (choose Fabric, Quilt, Forge or NeoForge)".to_string(),
         ));
     }
     let dest_dir = inst
@@ -100,7 +100,7 @@ pub fn prepare_instance(http: &Client, inst: &Instance, acc: &Account) -> Result
 
     let mods_dir = inst.mods_dir();
     if perf::has_prefix(&mods_dir, "customskinloader") {
-        return Ok(Some("Скин скопирован в сборку".to_string()));
+        return Ok(Some("Skin copied into the instance".to_string()));
     }
     let log = mods::install(
         http,
@@ -112,7 +112,7 @@ pub fn prepare_instance(http: &Client, inst: &Instance, acc: &Account) -> Result
         &mods_dir,
     )?;
     Ok(Some(format!(
-        "Скин скопирован, CustomSkinLoader установлен: {}",
+        "Skin copied, CustomSkinLoader installed: {}",
         log.join(", ")
     )))
 }

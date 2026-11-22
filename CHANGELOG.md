@@ -1,93 +1,116 @@
-# История версий
+# Changelog
 
-Версии идут по [SemVer](https://semver.org/lang/ru/): `0.МИНОР.ПАТЧ`.
-Новая функция — поднимаем МИНОР (0.1.0 → 0.2.0), исправление — ПАТЧ (0.1.0 → 0.1.1).
-Каждой версии соответствует git-тег `vX.Y.Z` и релиз на GitHub.
+Versions follow [SemVer](https://semver.org/): `0.MINOR.PATCH`.
+A new feature bumps MINOR (0.1.0 → 0.2.0), a fix bumps PATCH (0.1.0 → 0.1.1).
+Every version has a matching git tag `vX.Y.Z` and a release on GitHub.
 
-## [0.7.0] — время игры, новые оформления, проверка кода
-- Учёт времени игры по каждой сборке: на карточке, в панели выбранной сборки и общий итог на странице. Время дописывается каждые 30 секунд, при выходе из игры сверяется точно, поэтому не теряется, даже если закрыть лаунчер
-- Счётчик запусков для каждой сборки
-- 5 новых палитр фона: Амолед, Океан, Сакура, Песок, Неон (всего 10) и 4 новых акцента: Роза, Лайм, Циан, Багрянец (всего 9)
-- Стиль углов: острые, мягкие, круглые
-- Свечение акцента сверху страницы можно выключить
-- Сборку нельзя удалить, пока она запускается или в ней идёт игра
-- Фоновые потоки защищены от паник: при внутренней ошибке лаунчер показывает её, а не зависает на «Подготовка…»
-- Загрузки повторяются с паузой при сбоях сети
-- Старые логи запусков и крашей удаляются автоматически (хранятся последние 40 запусков и 20 крашей)
-- Новые сборки получают гарантированно уникальный id
-- Устранены места, где повреждённые данные могли вызвать панику (срезы хешей, отравленные блокировки)
+## [0.9.1] — new avatar set
+- Added avatars: Axolotl, Cat and Wolf
+- Removed the Steve and Alex avatars. An account that had one of them now shows **Auto** (the face of the skin, or the first letter of the nickname); nothing else changes, and the account can pick a new avatar at any time
+- 11 avatars in total; `assets/avatars-preview.png` is updated
 
-## [0.6.1] — исправления
-- Исправлен запуск NeoForge и новых версий Forge: ошибка `Modules minecraft and _1._21._1 export package…`. Ванильный jar больше не попадает в classpath у этих загрузчиков
-- Библиотеки natives берутся только для вашей платформы и архитектуры. Раньше DLL для x64, arm64 и x86 перезаписывали друг друга. Старые папки natives пересоздаются сами
-- Пути к библиотекам больше не смешивают `/` и `\`
-- Совместимость версий: старые конфиги читаются новой версией, а при несовпадении формата делается копия `config.backup-…json` и сохраняется всё, что можно прочитать
-- Неизвестные поля из конфигов других версий сохраняются при записи
-- Сборки, созданные старыми версиями, не получают автоустановку Sodium и OptiFine сами
-- Конфиг записывается через временный файл, обрыв записи не портит старый
-- Очень длинная командная строка на Windows передаётся через файл @argfile
-- При краше окно ошибки подсказывает вероятную причину (память, версия Java, конфликт модов и т. д.)
-- В `.exe` встроены сведения об авторе: ArturOriginos, описание, авторские права и манифест
-- В релизы добавлены файлы с контрольными суммами SHA-256 и подтверждение происхождения сборки (GitHub attestation)
+## [0.9.0] — account avatars
+- A new **Avatar** button in **Accounts**: choose a head for the account from 10 presets (Steve, Alex, Creeper, Zombie, Skeleton, Enderman, Pig, Villager, Slime, Blaze) or **Auto** (the face of the skin, or the first letter of the nickname)
+- The chosen avatar is saved with the account (`avatar` field in `config.json`) and is shown in the side panel and in the accounts list. Old configs work as before: no avatar means Auto
+- The heads are simplified 8×8 pixel art drawn in code (`src/avatar.rs`); `assets/avatars-preview.png` shows all of them
+- Tests check that every picture is well formed (8×8, every character is in the palette, ids are unique)
+- GitHub Actions: the release is now published by one separate job after all builds finish (four parallel jobs could race and leave duplicate or incomplete releases)
+- GitHub Actions: the release workflow checks that the tag matches the version in `Cargo.toml`
+- GitHub Actions: builds only get read access to the repository, only the publishing job can write; actions are updated to current major versions (checkout 6, upload-artifact 7, download-artifact 8, action-gh-release 3, attest-build-provenance 4)
+- GitHub Actions: CI cancels outdated runs for the same branch and can be started by hand
 
-## [0.6.0] — экспорт сборок и скины
-- Экспорт сборки в `.mrpack`: кнопка «Экспорт» на странице «Сборки»
-- Моды находятся на Modrinth по контрольной сумме и попадают в архив ссылками, а не файлами
-- По желанию в архив кладутся моды, которых нет на Modrinth, настройки, ресурспаки, шейдеры, `options.txt`
-- Скины для офлайн-аккаунтов: PNG 64×64 или 64×32, кнопка «Скин» в «Аккаунтах» или перетаскивание файла в окно
-- Лицо скина показывается в аватарке аккаунта
-- В игре скин показывает мод CustomSkinLoader, лаунчер ставит его сам для сборок с Fabric, Quilt, Forge и NeoForge
+## [0.8.0] — full English translation
+- The whole launcher interface is translated to English: sidebar and pages, all windows and dialogs, buttons, hints, status messages and the terms of use shown on first start
+- Error messages, the launch log and the crash hints are in English too
+- Play time and "last launched" are shown in a short English form: `12h 30m`, `5 min ago`
+- Background palettes and accents have English names: Graphite, Midnight, Pine, Burgundy, Light, AMOLED, Ocean, Sakura, Sand, Neon; Rust, Patina, Brass, Cobalt, Heather, Rose, Lime, Cyan, Crimson
+- README, the terms of use (`TERMS.md`), this changelog and the comments in the source code are translated as well
+- README no longer contains the section about publishing a release to GitHub
 
-## [0.5.0] — импорт сборок
-- Импорт сборок Modrinth (`.mrpack`) и CurseForge (`.zip`): кнопка «Импорт» на странице «Сборки» или перетаскивание файла в окно
-- Перед импортом показывается название, версия игры, загрузчик и число файлов
-- Версия загрузчика берётся точно такая, как в сборке
-- Моды скачиваются параллельно с проверкой контрольных сумм, настройки из `overrides` копируются в сборку
-- Файлы, которые не скачались, не ломают импорт: они попадают в отчёт
-- Защита: пути проверяются на выход за папку сборки, для `.mrpack` разрешены только `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com`
-- Недоделанная сборка при ошибке удаляется
+## [0.7.0] — play time, new looks, code hardening
+- Play time tracking for every instance: on the card, in the selected instance panel and a total on the page. The time is written every 30 seconds and is reconciled exactly when the game exits, so it is not lost even if you close the launcher
+- Launch counter for every instance
+- 5 new background palettes: AMOLED, Ocean, Sakura, Sand, Neon (10 in total) and 4 new accents: Rose, Lime, Cyan, Crimson (9 in total)
+- Corner style: sharp, soft, round
+- The accent glow at the top of the page can be turned off
+- An instance cannot be deleted while it is launching or the game is running in it
+- Background threads are protected from panics: on an internal error the launcher shows it instead of hanging on "Preparing…"
+- Downloads are retried with a pause after network failures
+- Old launch and crash logs are removed automatically (the last 40 launches and 20 crashes are kept)
+- New instances get a guaranteed unique id
+- Places where corrupted data could cause a panic are fixed (hash slices, poisoned locks)
 
-## [0.4.2] — ключ CurseForge
-- Убрана возможность вшивать ключ CurseForge при сборке: общий ключ в публичном файле нарушает правила CurseForge и его можно достать из программы. Теперь ключ только у пользователя, в настройках
+## [0.6.1] — fixes
+- Fixed the launch of NeoForge and new Forge versions: the error `Modules minecraft and _1._21._1 export package…`. The vanilla jar no longer ends up on the classpath for these loaders
+- Natives libraries are taken only for your platform and architecture. Before, the DLLs for x64, arm64 and x86 overwrote each other. Old natives folders are recreated automatically
+- Library paths no longer mix `/` and `\`
+- Version compatibility: old configs are read by the new version, and on a format mismatch a copy `config.backup-…json` is made and everything that can be read is kept
+- Unknown fields from configs of other versions are preserved on save
+- Instances created by old versions do not get Sodium and OptiFine installed on their own
+- The config is written through a temporary file, an interrupted write does not corrupt the old one
+- A very long command line on Windows is passed through an @argfile
+- On a crash the error window suggests a likely cause (memory, Java version, mod conflict, etc.)
+- The author details are embedded into the `.exe`: ArturOriginos, description, copyright and manifest
+- Releases now include files with SHA-256 checksums and build provenance attestation (GitHub attestation)
 
-## [0.4.1] — тесты
-- Автотесты логики: версии Java, правила библиотек, склейка профилей, подстановка аргументов, UUID, временные аккаунты, ограничения для картинок
-- GitHub Actions запускает `cargo test` на Windows, Linux и macOS
+## [0.6.0] — modpack export and skins
+- Export an instance to `.mrpack`: the "Export" button on the "Instances" page
+- Mods are found on Modrinth by checksum and go into the archive as links, not as files
+- Optionally the archive also gets mods that are not on Modrinth, settings, resource packs, shaders, `options.txt`
+- Skins for offline accounts: PNG 64×64 or 64×32, the "Skin" button in "Accounts" or dragging a file into the window
+- The face of the skin is shown in the account avatar
+- In the game the skin is shown by the CustomSkinLoader mod, which the launcher installs itself for instances with Fabric, Quilt, Forge and NeoForge
 
-## [0.4.0] — свои изображения
-- Свой фон интерфейса: любая картинка и регулировка затемнения
-- Своя иконка лаунчера (окно, панель задач, боковое меню)
-- Картинки можно перетащить прямо в окно лаунчера
-- Ограничения для иконки: PNG, JPG или WebP, до 5 МБ, строго квадратная, от 128×128 до 2048×2048 px
-- Ограничения для фона: PNG, JPG или WebP, до 10 МБ, от 800×450 до 7680×4320 px
-- Понятные сообщения, если картинка не подошла
+## [0.5.0] — modpack import
+- Import of Modrinth (`.mrpack`) and CurseForge (`.zip`) modpacks: the "Import" button on the "Instances" page or dragging a file into the window
+- Before importing, the name, game version, loader and number of files are shown
+- The loader version is exactly the one from the modpack
+- Mods are downloaded in parallel with checksum verification, settings from `overrides` are copied into the instance
+- Files that failed to download do not break the import: they go into the report
+- Protection: paths are checked for escaping the instance folder, for `.mrpack` only `cdn.modrinth.com`, `github.com`, `raw.githubusercontent.com`, `gitlab.com` are allowed
+- An unfinished instance is deleted on error
 
-## [0.3.0] — новый интерфейс и настройка цветов
-- Переработан интерфейс: боковое меню с иконками, карточки сборок с эмблемой и цветными метками загрузчика, плавное наведение, кнопка «Играть» с подсветкой
-- Свой цвет интерфейса: 5 готовых акцентов и выбор любого цвета палитрой
-- 5 палитр фона: Графит, Полночь, Хвоя, Бордо, Светлая
-- Масштаб интерфейса от 90% до 150%
-- Кнопка «Сбросить оформление»
+## [0.4.2] — CurseForge key
+- Removed the ability to embed a CurseForge key at build time: a shared key in a public file violates the CurseForge rules and can be extracted from the program. Now the key belongs only to the user, in the settings
 
-## [0.2.0] — иконка, логи и оптимизация
-- Новая иконка приложения (окно, панель задач, .exe на Windows)
-- Пользовательское соглашение при первом запуске
-- Лог каждого запуска в `logs/launches`
-- При краше игры отдельная папка в `logs/crashes`: лог запуска, `latest.log`, `crash-reports`, `hs_err`
-- Автоустановка Sodium (Fabric, Quilt, NeoForge) и OptiFine (Forge), включается галочкой в сборке
-- Кнопки «Открыть папку логов» в настройках и в окне ошибки
+## [0.4.1] — tests
+- Automated logic tests: Java versions, library rules, profile merging, argument substitution, UUIDs, temporary accounts, image limits
+- GitHub Actions runs `cargo test` on Windows, Linux and macOS
 
-## [0.1.0] — первый релиз
-- Запуск Minecraft: Vanilla, Fabric, Quilt, Forge, NeoForge
-- Сборки с любым названием, своя папка, ОЗУ и JVM-аргументы на каждую
-- Моды из Modrinth и CurseForge прямо в лаунчере (с обязательными зависимостями)
-- Включение, выключение и удаление установленных модов
-- Офлайн-аккаунты и временные аккаунты (удаляются через 24 часа)
-- Автоподбор и загрузка нужной Java (8 / 17 / 21)
-- Настройки: память, размер окна, полный экран, сворачивание при запуске, цвет оформления
-- Сборка релизов для Windows, Linux и macOS через GitHub Actions
+## [0.4.0] — custom images
+- Custom interface background: any picture and an adjustable dimming
+- Custom launcher icon (window, taskbar, side menu)
+- Pictures can be dragged right into the launcher window
+- Icon limits: PNG, JPG or WebP, up to 5 MB, strictly square, from 128×128 to 2048×2048 px
+- Background limits: PNG, JPG or WebP, up to 10 MB, from 800×450 to 7680×4320 px
+- Clear messages when a picture does not fit
 
-## План
-- 0.8.0 — вход через аккаунт Microsoft
-- 0.9.0 — обновление модов в один клик
-- 1.0.0 — стабильный релиз
+## [0.3.0] — new interface and color customization
+- Redesigned interface: a side menu with icons, instance cards with an emblem and colored loader tags, smooth hover, a "Play" button with a glow
+- Custom interface color: 5 ready-made accents and any color from a palette
+- 5 background palettes: Graphite, Midnight, Pine, Burgundy, Light
+- Interface scale from 90% to 150%
+- A "Reset appearance" button
+
+## [0.2.0] — icon, logs and optimization
+- New application icon (window, taskbar, `.exe` on Windows)
+- Terms of use on first start
+- A log of every launch in `logs/launches`
+- On a game crash a separate folder in `logs/crashes`: the launch log, `latest.log`, `crash-reports`, `hs_err`
+- Automatic installation of Sodium (Fabric, Quilt, NeoForge) and OptiFine (Forge), turned on with a checkbox in the instance
+- "Open logs folder" buttons in the settings and in the error window
+
+## [0.1.0] — first release
+- Launching Minecraft: Vanilla, Fabric, Quilt, Forge, NeoForge
+- Instances with any name, their own folder, RAM and JVM arguments for each
+- Mods from Modrinth and CurseForge right in the launcher (with required dependencies)
+- Enabling, disabling and deleting installed mods
+- Offline accounts and temporary accounts (deleted after 24 hours)
+- Automatic selection and download of the required Java (8 / 17 / 21)
+- Settings: memory, window size, fullscreen, minimizing on launch, interface color
+- Release builds for Windows, Linux and macOS through GitHub Actions
+
+## Plan
+- 0.10.0 — sign-in with a Microsoft account
+- 0.11.0 — one-click mod updates
+- 1.0.0 — stable release

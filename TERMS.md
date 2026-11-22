@@ -1,27 +1,27 @@
-Пользовательское соглашение Ferrum Launcher
+Ferrum Launcher Terms of Use
 
-Пожалуйста, внимательно прочитайте это соглашение. Нажимая «Принять и продолжить», вы подтверждаете, что прочитали его и согласны с условиями.
+Please read these terms carefully. By clicking "Accept and continue" you confirm that you have read them and agree to the conditions.
 
-1. О проекте
-Ferrum Launcher — бесплатный проект с открытым исходным кодом. Он предоставляется «как есть», без каких-либо гарантий: лаунчер может содержать ошибки, работать нестабильно или перестать работать с новыми версиями игры.
+1. About the project
+Ferrum Launcher is a free open source project. It is provided "as is", without any warranties: the launcher may contain bugs, work unstably or stop working with new game versions.
 
-2. Ответственность за действия
-Я, ArturOriginos, владелец данного проекта, не несу ответственности за ваши действия при использовании лаунчера. Это относится к запуску игры, установке и использованию модов, подключению к любым серверам и ко всем последствиям этих действий, включая блокировки аккаунтов и ограничения на серверах.
+2. Responsibility for your actions
+I, ArturOriginos, the owner of this project, am not responsible for your actions when using the launcher. This applies to launching the game, installing and using mods, connecting to any servers and all consequences of these actions, including account bans and restrictions on servers.
 
-3. Ответственность за данные
-Я, ArturOriginos, не несу ответственности за ваши данные. Это относится к потере, повреждению или утечке файлов, миров, сохранений, настроек, аккаунтов и паролей, в том числе после установки модов или обновления лаунчера. Делайте резервные копии важных миров и файлов.
+3. Responsibility for your data
+I, ArturOriginos, am not responsible for your data. This applies to the loss, damage or leak of files, worlds, saves, settings, accounts and passwords, including after installing mods or updating the launcher. Make backups of important worlds and files.
 
-4. Сторонние файлы и сервисы
-Minecraft, Java, моды, OptiFine, Sodium и другие файлы принадлежат своим авторам и скачиваются с сайтов Mojang, Modrinth, CurseForge, OptiFine, Adoptium и других сервисов. Лаунчер только помогает их скачать. Вы сами отвечаете за то, чтобы соблюдать лицензии, правила и условия этих сервисов и авторов.
+4. Third-party files and services
+Minecraft, Java, mods, OptiFine, Sodium and other files belong to their authors and are downloaded from the sites of Mojang, Modrinth, CurseForge, OptiFine, Adoptium and other services. The launcher only helps to download them. You are responsible for complying with the licenses, rules and terms of these services and authors.
 
-5. Офлайн-аккаунты
-Офлайн- и временные аккаунты не заменяют лицензионный аккаунт. Вы сами отвечаете за соблюдение пользовательского соглашения Minecraft и правил серверов, на которые заходите.
+5. Offline accounts
+Offline and temporary accounts do not replace a licensed account. You are responsible for complying with the Minecraft end user agreement and the rules of the servers you join.
 
-6. Данные на вашем компьютере
-Настройки, сборки и логи хранятся локально на вашем компьютере. Лаунчер не отправляет их автору проекта. Логи запуска и крашей могут содержать ваш ник и пути к файлам: проверяйте их перед тем, как отправлять другим людям.
+6. Data on your computer
+Settings, instances and logs are stored locally on your computer. The launcher does not send them to the author of the project. Launch and crash logs may contain your nickname and file paths: check them before sending them to other people.
 
-7. Товарные знаки
-Minecraft — товарный знак Mojang AB. Проект не связан с Mojang Studios и Microsoft и не одобрен ими.
+7. Trademarks
+Minecraft is a trademark of Mojang AB. The project is not affiliated with Mojang Studios or Microsoft and is not endorsed by them.
 
-8. Если вы не согласны
-Если вы не согласны с условиями, нажмите «Отказаться» и не используйте лаунчер.
+8. If you do not agree
+If you do not agree with these terms, click "Decline" and do not use the launcher.

@@ -8,7 +8,7 @@ use std::{
     process::Command,
 };
 
-/// На Windows не показываем консольное окно у дочерних процессов.
+/// On Windows, don't show a console window for child processes.
 pub fn quiet(cmd: &mut Command) -> &mut Command {
     #[cfg(windows)]
     {
@@ -26,7 +26,7 @@ fn exe() -> &'static str {
     }
 }
 
-/// Главная версия Java: 8, 17, 21…
+/// Java major version: 8, 17, 21…
 pub fn java_major(java: &str) -> Option<u32> {
     let mut c = Command::new(java);
     c.arg("-version");
@@ -40,7 +40,7 @@ pub fn java_major(java: &str) -> Option<u32> {
     parse_java_major(&text)
 }
 
-/// Достаёт главную версию Java из вывода `java -version`.
+/// Extracts the Java major version from the `java -version` output.
 fn parse_java_major(text: &str) -> Option<u32> {
     let start = text.find('"')? + 1;
     let rest = &text[start..];
@@ -55,7 +55,7 @@ fn parse_java_major(text: &str) -> Option<u32> {
     }
 }
 
-/// Java, найденные в системе.
+/// Java installations found on the system.
 pub fn candidates() -> Vec<String> {
     let mut v = vec!["java".to_string()];
     if let Ok(h) = std::env::var("JAVA_HOME") {
@@ -110,13 +110,13 @@ fn find_bin(dir: &Path, depth: u32) -> Option<PathBuf> {
     None
 }
 
-/// Скачивает JRE (Eclipse Temurin) в папку лаунчера, если её ещё нет.
+/// Downloads a JRE (Eclipse Temurin) into the launcher folder if it isn't there yet.
 pub fn ensure_runtime(http: &Client, major: u32, progress: &Progress) -> Result<String> {
     let dir = runtime_dir().join(format!("java-{major}"));
     if let Some(b) = find_bin(&dir, 5) {
         return Ok(b.to_string_lossy().to_string());
     }
-    progress.label(format!("Скачиваю Java {major}…"));
+    progress.label(format!("Downloading Java {major}…"));
     let os = if cfg!(windows) {
         "windows"
     } else if cfg!(target_os = "macos") {
@@ -129,7 +129,7 @@ pub fn ensure_runtime(http: &Client, major: u32, progress: &Progress) -> Result<
         "https://api.adoptium.net/v3/binary/latest/{major}/ga/{os}/{arch}/jre/hotspot/normal/eclipse"
     );
     let bytes = http.get(&url).send()?.error_for_status()?.bytes()?;
-    progress.label(format!("Распаковываю Java {major}…"));
+    progress.label(format!("Extracting Java {major}…"));
     fs::create_dir_all(&dir)?;
     if cfg!(windows) {
         let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
@@ -140,10 +140,10 @@ pub fn ensure_runtime(http: &Client, major: u32, progress: &Progress) -> Result<
     }
     find_bin(&dir, 5)
         .map(|p| p.to_string_lossy().to_string())
-        .ok_or_else(|| anyhow!("Не нашёл java в скачанном архиве"))
+        .ok_or_else(|| anyhow!("Could not find java in the downloaded archive"))
 }
 
-/// Выбирает Java под нужную версию игры.
+/// Picks a Java for the required game version.
 pub fn pick(http: &Client, st: &Settings, major: u32, progress: &Progress) -> Result<String> {
     let major = if major == 16 { 17 } else { major };
     if !st.auto_java {
@@ -154,11 +154,11 @@ pub fn pick(http: &Client, st: &Settings, major: u32, progress: &Progress) -> Re
         };
         return match java_major(&j) {
             Some(m) if m >= major => Ok(j),
-            Some(m) => bail!("Этой версии нужна Java {major}+, а указана Java {m}"),
-            None => bail!("Не удалось запустить Java: {j}"),
+            Some(m) => bail!("This version needs Java {major}+, but Java {m} is configured"),
+            None => bail!("Could not run Java: {j}"),
         };
     }
-    progress.label("Ищу подходящую Java…");
+    progress.label("Looking for a suitable Java…");
     for c in candidates() {
         if java_major(&c) == Some(major) {
             return Ok(c);

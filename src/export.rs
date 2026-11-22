@@ -1,4 +1,4 @@
-//! Экспорт сборки в формат Modrinth (.mrpack).
+//! Export an instance to the Modrinth format (.mrpack).
 use crate::config::{data_dir, Instance, Loader};
 use crate::net::Progress;
 use crate::util::slug;
@@ -15,7 +15,7 @@ use std::{
 use zip::write::SimpleFileOptions;
 use zip::ZipWriter;
 
-/// Не раздуваем архив больше этого размера (настройки, ресурспаки, шейдеры).
+/// We don't let the archive grow beyond this size (configs, resource packs, shaders).
 const MAX_EXTRA_BYTES: u64 = 1_500 * 1024 * 1024;
 
 pub struct ExportOpts {
@@ -54,7 +54,7 @@ fn hash_file(p: &Path) -> Result<(String, String)> {
     Ok((format!("{:x}", s1.finalize()), format!("{:x}", s5.finalize())))
 }
 
-/// Достаёт версию загрузчика из id профиля («fabric-loader-0.16.5-1.21.1» → «0.16.5»).
+/// Extracts the loader version from the profile id (“fabric-loader-0.16.5-1.21.1” → “0.16.5”).
 pub fn loader_version_from_id(loader: Loader, mc: &str, id: &str) -> Option<String> {
     let v: String = match loader {
         Loader::Vanilla => return Some(String::new()),
@@ -84,7 +84,7 @@ fn loader_version(inst: &Instance) -> Result<String> {
         .map(|s| s.trim().to_string())
         .unwrap_or_default();
     loader_version_from_id(inst.loader, &inst.mc_version, &id).ok_or_else(|| {
-        anyhow!("Не знаю версию загрузчика. Запустите сборку хотя бы один раз или укажите версию в «Изменить»")
+        anyhow!("Unknown loader version. Launch the instance at least once or set the version in \"Edit\"")
     })
 }
 
@@ -136,7 +136,7 @@ fn add_dir(
         } else if p.is_file() {
             *total += e.metadata().map(|m| m.len()).unwrap_or(0);
             if *total > MAX_EXTRA_BYTES {
-                bail!("Настройки, ресурспаки и шейдеры весят больше 1,5 ГБ. Отключите «Включить настройки» или уберите лишнее");
+                bail!("Settings, resource packs and shaders weigh more than 1.5 GB. Turn off \"Include settings\" or remove some of them");
             }
             add_file(w, o, &p, &format!("{prefix}/{name}"))?;
         }
@@ -148,9 +148,9 @@ pub fn run(http: &Client, inst: &Instance, opts: &ExportOpts, progress: &Progres
     let lv = loader_version(inst)?;
     let mods_dir = inst.mods_dir();
 
-    // 1. Считаем хеши включённых модов.
-    progress.label("Считаю контрольные суммы модов…");
-    let mut jars: Vec<(PathBuf, String, String, String, u64)> = vec![]; // путь, имя, sha1, sha512, размер
+    // 1. Compute hashes of the enabled mods.
+    progress.label("Computing mod checksums…");
+    let mut jars: Vec<(PathBuf, String, String, String, u64)> = vec![]; // path, name, sha1, sha512, size
     if let Ok(rd) = fs::read_dir(&mods_dir) {
         let mut paths: Vec<PathBuf> = rd
             .flatten()
@@ -168,8 +168,8 @@ pub fn run(http: &Client, inst: &Instance, opts: &ExportOpts, progress: &Progres
         }
     }
 
-    // 2. Спрашиваем Modrinth, какие из них там есть.
-    progress.label("Ищу моды на Modrinth…");
+    // 2. Ask Modrinth which of them it has.
+    progress.label("Looking up mods on Modrinth…");
     let found: Value = if jars.is_empty() {
         json!({})
     } else {
@@ -201,7 +201,7 @@ pub fn run(http: &Client, inst: &Instance, opts: &ExportOpts, progress: &Progres
         }
     }
 
-    // 3. Манифест.
+    // 3. Manifest.
     let name = if opts.name.is_empty() { inst.name.clone() } else { opts.name.clone() };
     let version = safe_version(&opts.version);
     let mut deps = serde_json::Map::new();
@@ -214,15 +214,15 @@ pub fn run(http: &Client, inst: &Instance, opts: &ExportOpts, progress: &Progres
         "game": "minecraft",
         "versionId": version,
         "name": name,
-        "summary": "Экспорт из Ferrum Launcher",
+        "summary": "Exported from Ferrum Launcher",
         "files": files,
         "dependencies": deps
     });
 
-    // 4. Пишем архив.
-    progress.label("Собираю архив…");
+    // 4. Write the archive.
+    progress.label("Building the archive…");
     let out_path = exports_dir().join(format!("{}-{}.mrpack", slug(&name), version));
-    let mut w = ZipWriter::new(fs::File::create(&out_path).context("Не удалось создать файл экспорта")?);
+    let mut w = ZipWriter::new(fs::File::create(&out_path).context("Could not create the export file")?);
     let o = SimpleFileOptions::default();
     w.start_file("modrinth.index.json", o.clone())?;
     w.write_all(serde_json::to_string_pretty(&index)?.as_bytes())?;
@@ -233,11 +233,11 @@ pub fn run(http: &Client, inst: &Instance, opts: &ExportOpts, progress: &Progres
         for j in &unknown {
             add_file(&mut w, &o, &j.0, &format!("overrides/mods/{}", j.1))?;
             embedded += 1;
-            warnings.push(format!("{}: нет на Modrinth, положен внутрь архива", j.1));
+            warnings.push(format!("{}: not on Modrinth, included in the archive", j.1));
         }
     } else {
         for j in &unknown {
-            warnings.push(format!("{}: нет на Modrinth, в архив не попал", j.1));
+            warnings.push(format!("{}: not on Modrinth, left out of the archive", j.1));
         }
     }
     if opts.include_configs {

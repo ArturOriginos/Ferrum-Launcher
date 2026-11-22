@@ -5,8 +5,8 @@ use reqwest::blocking::Client;
 use serde_json::Value;
 use std::{collections::HashSet, fs, path::Path};
 
-/// Ключ CurseForge. Он только пользовательский: вшивать общий ключ в публичную сборку
-/// нельзя по правилам CurseForge, поэтому каждый вводит свой в настройках.
+/// The CurseForge key. It is user-provided only: embedding a shared key into a public build
+/// is against CurseForge rules, so everyone enters their own in the settings.
 pub fn curseforge_key(from_settings: &str) -> String {
     from_settings.trim().to_string()
 }
@@ -129,18 +129,18 @@ fn modrinth_install(
     let ver = vs
         .as_array()
         .and_then(|a| a.first())
-        .ok_or_else(|| anyhow!("Нет версии мода под {mc} / {}", loader.label()))?;
-    let files = ver["files"].as_array().context("У версии нет файлов")?;
+        .ok_or_else(|| anyhow!("No mod version for {mc} / {}", loader.label()))?;
+    let files = ver["files"].as_array().context("The version has no files")?;
     let f = files
         .iter()
         .find(|f| f["primary"].as_bool().unwrap_or(false))
         .or(files.first())
-        .context("У версии нет файлов")?;
-    let name = f["filename"].as_str().context("Нет имени файла")?;
+        .context("The version has no files")?;
+    let name = f["filename"].as_str().context("No file name")?;
     download(
         http,
         &Job {
-            url: f["url"].as_str().context("Нет ссылки на файл")?.to_string(),
+            url: f["url"].as_str().context("No file link")?.to_string(),
             dest: dir.join(name),
             sha1: f["hashes"]["sha1"].as_str().map(String::from),
             size: None,
@@ -148,7 +148,7 @@ fn modrinth_install(
     )?;
     log.push(name.to_string());
 
-    // Обязательные зависимости.
+    // Required dependencies.
     for d in ver["dependencies"].as_array().into_iter().flatten() {
         if d["dependency_type"].as_str() == Some("required") {
             if let Some(pid) = d["project_id"].as_str() {
@@ -165,7 +165,7 @@ const CF: &str = "https://api.curseforge.com/v1";
 
 fn cf_get(http: &Client, key: &str, url: &str, params: &[(&str, String)]) -> Result<Value> {
     if key.is_empty() {
-        bail!("Нужен API-ключ CurseForge. Получите его на console.curseforge.com и вставьте в «Настройки», либо переключитесь на Modrinth.");
+        bail!("A CurseForge API key is required. Get one at console.curseforge.com and paste it into Settings, or switch to Modrinth.");
     }
     Ok(http
         .get(url)
@@ -229,25 +229,25 @@ fn cf_install(
         params.push(("modLoaderType", t.to_string()));
     }
     let v = cf_get(http, key, &format!("{CF}/mods/{id}/files"), &params)?;
-    let mut files: Vec<&Value> = v["data"].as_array().context("Нет списка файлов")?.iter().collect();
+    let mut files: Vec<&Value> = v["data"].as_array().context("No file list")?.iter().collect();
     files.sort_by(|a, b| {
         b["fileDate"]
             .as_str()
             .unwrap_or("")
             .cmp(a["fileDate"].as_str().unwrap_or(""))
     });
-    // Предпочитаем релизы (releaseType = 1).
+    // Prefer releases (releaseType = 1).
     let f = files
         .iter()
         .find(|f| f["releaseType"].as_u64() == Some(1))
         .or(files.first())
-        .ok_or_else(|| anyhow!("Нет файлов мода под {mc} / {}", loader.label()))?;
-    let name = f["fileName"].as_str().context("Нет имени файла")?;
+        .ok_or_else(|| anyhow!("No mod files for {mc} / {}", loader.label()))?;
+    let name = f["fileName"].as_str().context("No file name")?;
     let url = match f["downloadUrl"].as_str() {
         Some(u) if !u.is_empty() => u.to_string(),
         _ => {
-            // Автор запретил выдачу ссылки через API — берём прямой адрес CDN.
-            let fid = f["id"].as_u64().context("Нет id файла")?;
+            // The author disabled link delivery via the API — we use the direct CDN address.
+            let fid = f["id"].as_u64().context("No file id")?;
             format!("https://edge.forgecdn.net/files/{}/{}/{}", fid / 1000, fid % 1000, name)
         }
     };
@@ -263,7 +263,7 @@ fn cf_install(
     log.push(name.to_string());
 
     for d in f["dependencies"].as_array().into_iter().flatten() {
-        // relationType 3 = обязательная зависимость
+        // relationType 3 = required dependency
         if d["relationType"].as_u64() == Some(3) {
             if let Some(mid) = d["modId"].as_u64() {
                 let _ = cf_install(http, key, &mid.to_string(), mc, loader, dir, done, log);
@@ -273,7 +273,7 @@ fn cf_install(
     Ok(())
 }
 
-// ---------- Установленные моды ----------
+// ---------- Installed mods ----------
 
 #[derive(Clone)]
 pub struct InstalledMod {

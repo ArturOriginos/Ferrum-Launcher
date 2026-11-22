@@ -1,7 +1,8 @@
-// В релизной сборке на Windows не показываем консоль.
+// In release builds on Windows we don't show a console window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod avatar;
 mod config;
 mod custom;
 mod export;

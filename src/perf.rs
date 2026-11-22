@@ -1,4 +1,4 @@
-//! Автоустановка оптимизации: Sodium (Fabric / Quilt / NeoForge) и OptiFine (Forge).
+//! Automatic performance mods: Sodium (Fabric / Quilt / NeoForge) and OptiFine (Forge).
 use crate::config::{Instance, Loader, ModSource};
 use crate::mods;
 use crate::net::{download, Job};
@@ -17,14 +17,14 @@ pub(crate) fn has_prefix(dir: &Path, prefix: &str) -> bool {
         .unwrap_or(false)
 }
 
-/// Возвращает короткий отчёт для лога запуска.
+/// Returns a short report for the launch log.
 pub fn install_for(http: &Client, inst: &Instance) -> Result<String> {
     let dir = inst.mods_dir();
     fs::create_dir_all(&dir)?;
     match inst.loader {
         Loader::Fabric | Loader::Quilt | Loader::NeoForge => {
             if has_prefix(&dir, "sodium") {
-                return Ok("Sodium уже установлен".to_string());
+                return Ok("Sodium is already installed".to_string());
             }
             let log = mods::install(
                 http,
@@ -35,14 +35,14 @@ pub fn install_for(http: &Client, inst: &Instance) -> Result<String> {
                 inst.loader,
                 &dir,
             )?;
-            Ok(format!("Sodium установлен: {}", log.join(", ")))
+            Ok(format!("Sodium installed: {}", log.join(", ")))
         }
         Loader::Forge => optifine(http, &inst.mc_version, &dir),
-        Loader::Vanilla => Ok("Для Vanilla оптимизация не ставится".to_string()),
+        Loader::Vanilla => Ok("No performance mods are installed for Vanilla".to_string()),
     }
 }
 
-/// Кусок строки от `start` до ближайшей кавычки, пробела или `<`.
+/// The part of the string from `start` up to the nearest quote, space or `<`.
 fn piece<'a>(s: &'a str, start: &str) -> Option<&'a str> {
     let i = s.find(start)?;
     let rest = &s[i..];
@@ -52,10 +52,10 @@ fn piece<'a>(s: &'a str, start: &str) -> Option<&'a str> {
     Some(&rest[..end])
 }
 
-/// У OptiFine нет API: берём ссылку со страницы optifine.net, как это делает браузер.
+/// OptiFine has no API: we take the link from the optifine.net page, the way a browser does.
 fn optifine(http: &Client, mc: &str, dir: &Path) -> Result<String> {
     if has_prefix(dir, "optifine") {
-        return Ok("OptiFine уже установлен".to_string());
+        return Ok("OptiFine is already installed".to_string());
     }
     let page = http
         .get("https://optifine.net/downloads")
@@ -65,7 +65,7 @@ fn optifine(http: &Client, mc: &str, dir: &Path) -> Result<String> {
         .text()?;
     let needle = format!("adloadx?f=OptiFine_{mc}_HD_U_");
     let part = piece(&page, &needle).ok_or_else(|| {
-        anyhow!("OptiFine для Minecraft {mc} не найден на optifine.net (скачайте вручную и положите в папку mods)")
+        anyhow!("OptiFine for Minecraft {mc} was not found on optifine.net (download it manually and put it in the mods folder)")
     })?;
     let file = part.trim_start_matches("adloadx?f=").to_string();
 
@@ -77,7 +77,7 @@ fn optifine(http: &Client, mc: &str, dir: &Path) -> Result<String> {
         .error_for_status()?
         .text()?;
     let link = piece(&ad, "downloadx?f=")
-        .ok_or_else(|| anyhow!("Не удалось получить прямую ссылку на OptiFine"))?
+        .ok_or_else(|| anyhow!("Could not get a direct download link for OptiFine"))?
         .replace("&amp;", "&");
     let dest = dir.join(&file);
     download(
@@ -89,14 +89,14 @@ fn optifine(http: &Client, mc: &str, dir: &Path) -> Result<String> {
             size: None,
         },
     )?;
-    // Убеждаемся, что скачали jar (zip), а не html-страницу.
+    // Make sure we downloaded a jar (zip) and not an HTML page.
     let mut head = [0u8; 2];
     fs::File::open(&dest)?.read_exact(&mut head)?;
     if &head != b"PK" {
         let _ = fs::remove_file(&dest);
-        bail!("Сайт OptiFine вернул не jar-файл. Скачайте OptiFine вручную и положите в папку mods");
+        bail!("The OptiFine site did not return a jar file. Download OptiFine manually and put it in the mods folder");
     }
-    Ok(format!("OptiFine установлен: {file}"))
+    Ok(format!("OptiFine installed: {file}"))
 }
 
 #[cfg(test)]
@@ -110,7 +110,7 @@ mod tests {
             piece(html, "adloadx?f=OptiFine_1.20.1_HD_U_"),
             Some("adloadx?f=OptiFine_1.20.1_HD_U_I7.jar")
         );
-        // 1.20 не должна совпасть с 1.20.1
+        // 1.20 must not match 1.20.1
         assert_eq!(piece(html, "adloadx?f=OptiFine_1.20_HD_U_"), None);
     }
 }

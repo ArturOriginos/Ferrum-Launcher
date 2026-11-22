@@ -1,3 +1,4 @@
+use crate::avatar;
 use crate::config::*;
 use crate::custom;
 use crate::export;
@@ -74,20 +75,20 @@ pub struct App {
     applied: (Color32, usize, u32),
     applied_zoom: f32,
 
-    // версии Minecraft
+    // Minecraft versions
     versions: Vec<McVersion>,
     versions_slot: Slot<Result<Vec<McVersion>, String>>,
     versions_loading: bool,
 
-    // запуск
+    // launch
     progress: Option<Progress>,
     prev_running: bool,
 
-    // сборки
+    // instances
     form: Option<InstanceForm>,
     confirm_delete: Option<String>,
 
-    // моды
+    // mods
     mod_query: String,
     mod_results: Vec<ModHit>,
     mod_search_slot: Slot<Result<Vec<ModHit>, String>>,
@@ -97,36 +98,38 @@ pub struct App {
     installed: Vec<InstalledMod>,
     installed_for: Option<String>,
 
-    // аккаунты
+    // accounts
     nick: String,
 
-    // иконка и соглашение
+    // icon and terms
     icon: egui::TextureHandle,
     terms_checked: bool,
 
-    // свои изображения
+    // custom images
     bg_tex: Option<egui::TextureHandle>,
     bg_path_input: String,
     icon_path_input: String,
     custom_msg: Option<(bool, String)>,
     pending_drop: Option<std::path::PathBuf>,
 
-    // импорт сборок
+    // modpack import
     import: Option<ImportState>,
     import_progress: Option<Progress>,
     import_slot: Slot<Result<(Instance, Vec<String>), String>>,
 
-    // экспорт сборок
+    // modpack export
     export: Option<ExportState>,
     export_progress: Option<Progress>,
     export_slot: Slot<Result<export::ExportResult, String>>,
 
-    // время игры
+    // play time
     running_inst: Option<String>,
     counted_secs: u64,
 
-    // скины
+    // skins
     faces: std::collections::HashMap<String, egui::TextureHandle>,
+    avatar_tex: std::collections::HashMap<&'static str, egui::TextureHandle>,
+    avatar_edit: Option<String>,
     skin_edit: Option<String>,
     skin_path_input: String,
     skin_msg: Option<(bool, String)>,
@@ -202,6 +205,18 @@ impl App {
             export_progress: None,
             export_slot: Slot::new(),
             faces: std::collections::HashMap::new(),
+            avatar_tex: avatar::PRESETS
+                .iter()
+                .map(|p| {
+                    let t = cc.egui_ctx.load_texture(
+                        format!("avatar-{}", p.id),
+                        p.image(),
+                        egui::TextureOptions::NEAREST,
+                    );
+                    (p.id, t)
+                })
+                .collect(),
+            avatar_edit: None,
             skin_edit: None,
             skin_path_input: String::new(),
             skin_msg: None,
@@ -221,7 +236,7 @@ impl App {
         app
     }
 
-    // ---------- свои изображения ----------
+    // ---------- custom images ----------
 
     fn reload_icon(&mut self, ctx: &egui::Context) {
         let custom_on = self.cfg.settings.has_icon;
@@ -252,7 +267,7 @@ impl App {
                 Ok(()) => {
                     self.cfg.settings.has_bg = true;
                     self.reload_bg(ctx);
-                    self.custom_msg = Some((true, "Фон применён".to_string()));
+                    self.custom_msg = Some((true, "Background applied".to_string()));
                     self.dirty = true;
                 }
                 Err(e) => self.custom_msg = Some((false, format!("{e:#}"))),
@@ -261,14 +276,14 @@ impl App {
                 Ok(()) => {
                     self.cfg.settings.has_icon = true;
                     self.reload_icon(ctx);
-                    self.custom_msg = Some((true, "Иконка применена".to_string()));
+                    self.custom_msg = Some((true, "Icon applied".to_string()));
                     self.dirty = true;
                 }
                 Err(e) => self.custom_msg = Some((false, format!("{e:#}"))),
             },
             CustomKind::Skin => {
                 let Some(uuid) = self.cfg.selected_account.clone() else {
-                    self.custom_msg = Some((false, "Сначала создайте и выберите аккаунт".to_string()));
+                    self.custom_msg = Some((false, "Create and select an account first".to_string()));
                     return;
                 };
                 self.skin_path_input = path.to_string();
@@ -285,13 +300,13 @@ impl App {
                 custom::remove_background();
                 self.cfg.settings.has_bg = false;
                 self.reload_bg(ctx);
-                self.custom_msg = Some((true, "Фон убран".to_string()));
+                self.custom_msg = Some((true, "Background removed".to_string()));
             }
             CustomKind::Icon => {
                 custom::remove_icon();
                 self.cfg.settings.has_icon = false;
                 self.reload_icon(ctx);
-                self.custom_msg = Some((true, "Возвращена стандартная иконка".to_string()));
+                self.custom_msg = Some((true, "Default icon restored".to_string()));
             }
             CustomKind::Skin => {}
         }
@@ -308,24 +323,24 @@ impl App {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_default();
         let mut choice: Option<Option<CustomKind>> = None;
-        egui::Window::new("Что сделать с картинкой?")
+        egui::Window::new("What should be done with the image?")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(RichText::new(name).size(16.0));
-                ui.label(muted("Фон: до 10 МБ, от 800×450 px. Иконка: до 5 МБ, строго квадратная, от 128×128 px."));
+                ui.label(muted("Background: up to 10 MB, from 800×450 px. Icon: up to 5 MB, strictly square, from 128×128 px."));
                 ui.horizontal(|ui| {
-                    if accent_btn(ui, "Сделать фоном", accent).clicked() {
+                    if accent_btn(ui, "Use as background", accent).clicked() {
                         choice = Some(Some(CustomKind::Background));
                     }
-                    if ui.button("Сделать иконкой").clicked() {
+                    if ui.button("Use as icon").clicked() {
                         choice = Some(Some(CustomKind::Icon));
                     }
-                    if ui.button("Сделать скином").clicked() {
+                    if ui.button("Use as skin").clicked() {
                         choice = Some(Some(CustomKind::Skin));
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button("Cancel").clicked() {
                         choice = Some(None);
                     }
                 });
@@ -338,7 +353,7 @@ impl App {
         }
     }
 
-    // ---------- экспорт сборок ----------
+    // ---------- modpack export ----------
 
     fn open_export(&mut self, inst: Instance) {
         self.export = Some(ExportState {
@@ -390,33 +405,33 @@ impl App {
         let accent = self.accent();
         let snap = self.export_progress.as_ref().map(|p| p.snapshot());
         let (mut start, mut close, mut open) = (false, false, false);
-        egui::Window::new("Экспорт сборки")
+        egui::Window::new("Export modpack")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .default_width(560.0)
             .show(ctx, |ui| {
                 ui.label(muted(
-                    "Создаст файл .mrpack. Его можно отправить другу или импортировать в другой лаунчер.",
+                    "Creates a .mrpack file. You can send it to a friend or import it into another launcher.",
                 ));
                 egui::Grid::new("export_grid")
                     .num_columns(2)
                     .spacing([14.0, 10.0])
                     .show(ui, |ui| {
-                        ui.label("Название");
+                        ui.label("Name");
                         ui.add(TextEdit::singleline(&mut st.name).desired_width(320.0));
                         ui.end_row();
-                        ui.label("Версия сборки");
+                        ui.label("Modpack version");
                         ui.add(TextEdit::singleline(&mut st.version).desired_width(120.0));
                         ui.end_row();
                     });
                 ui.checkbox(
                     &mut st.include_configs,
-                    "Включить настройки: config, ресурспаки, шейдеры, options.txt",
+                    "Include settings: config, resource packs, shaders, options.txt",
                 );
-                ui.checkbox(&mut st.embed_unknown, "Положить в архив моды, которых нет на Modrinth");
+                ui.checkbox(&mut st.embed_unknown, "Put mods that are not on Modrinth into the archive");
                 ui.label(muted(
-                    "Миры, логи и скриншоты в архив не попадают. Моды из последнего пункта раздаются вместе с файлом: проверьте, что их лицензия это разрешает.",
+                    "Worlds, logs and screenshots are not included. Mods from the last option are distributed together with the file: make sure their license allows it.",
                 ));
                 if st.busy {
                     match &snap {
@@ -432,7 +447,7 @@ impl App {
                             }
                         }
                         None => {
-                            ui.label("Подготовка…");
+                            ui.label("Preparing…");
                         }
                     }
                 }
@@ -452,14 +467,14 @@ impl App {
                 let has_file = st.done.as_ref().map_or(false, |d| d.3.is_some());
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(!st.busy, |ui| {
-                        if accent_btn(ui, "Экспортировать", accent).clicked() {
+                        if accent_btn(ui, "Export", accent).clicked() {
                             start = true;
                         }
                     });
-                    if has_file && ui.button("Открыть папку").clicked() {
+                    if has_file && ui.button("Open folder").clicked() {
                         open = true;
                     }
-                    if ui.button("Закрыть").clicked() {
+                    if ui.button("Close").clicked() {
                         close = true;
                     }
                 });
@@ -476,7 +491,16 @@ impl App {
         }
     }
 
-    // ---------- скины ----------
+    // ---------- skins and avatars ----------
+
+    /// The picture shown for an account: the chosen preset avatar, else the face of its skin.
+    fn face_of(&self, a: &Account) -> Option<egui::TextureId> {
+        a.avatar
+            .as_deref()
+            .and_then(|id| self.avatar_tex.get(id))
+            .or_else(|| self.faces.get(&a.uuid))
+            .map(|t| t.id())
+    }
 
     fn reload_face(&mut self, ctx: &egui::Context, uuid: &str) {
         match skin::load_face(uuid) {
@@ -494,7 +518,7 @@ impl App {
         if remove {
             skin::remove(uuid);
             self.reload_face(ctx, uuid);
-            self.skin_msg = Some((true, "Скин убран".to_string()));
+            self.skin_msg = Some((true, "Skin removed".to_string()));
             return;
         }
         let p = self.skin_path_input.clone();
@@ -503,14 +527,14 @@ impl App {
                 self.reload_face(ctx, uuid);
                 self.skin_msg = Some((
                     true,
-                    "Скин применён. Он появится в игре при следующем запуске сборки с загрузчиком модов".to_string(),
+                    "Skin applied. It will appear in the game the next time you launch an instance with a mod loader".to_string(),
                 ));
             }
             Err(e) => self.skin_msg = Some((false, format!("{e:#}"))),
         }
     }
 
-    // ---------- импорт сборок ----------
+    // ---------- modpack import ----------
 
     fn open_import(&mut self, path: String) {
         let info = if path.trim().is_empty() {
@@ -556,22 +580,22 @@ impl App {
         let snap = self.import_progress.as_ref().map(|p| p.snapshot());
         let cf_missing = mods::curseforge_key(&self.cfg.settings.curseforge_key).is_empty();
         let (mut check, mut start, mut close) = (false, false, false);
-        egui::Window::new("Импорт сборки")
+        egui::Window::new("Import modpack")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .default_width(580.0)
             .show(ctx, |ui| {
                 ui.label(muted(
-                    "Сборки Modrinth (.mrpack) и CurseForge (.zip). Файл можно перетащить прямо в окно лаунчера.",
+                    "Modrinth (.mrpack) and CurseForge (.zip) modpacks. You can drag the file right into the launcher window.",
                 ));
                 ui.horizontal(|ui| {
                     let te = ui.add(
                         TextEdit::singleline(&mut st.path)
-                            .hint_text("Путь к файлу сборки")
+                            .hint_text("Path to the modpack file")
                             .desired_width(400.0),
                     );
-                    if ui.button("Проверить").clicked()
+                    if ui.button("Check").clicked()
                         || (te.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
                     {
                         check = true;
@@ -592,7 +616,7 @@ impl App {
                             };
                             ui.label(muted(format!("Minecraft {}  •  {}", i.mc_version, l)));
                             ui.label(muted(format!(
-                                "Файлов для загрузки: {}  •  формат: {}",
+                                "Files to download: {}  •  format: {}",
                                 i.files,
                                 if i.kind == import::PackKind::Mrpack { "Modrinth" } else { "CurseForge" }
                             )));
@@ -600,7 +624,7 @@ impl App {
                         let blocked = i.kind == import::PackKind::CurseForge && cf_missing;
                         if blocked {
                             ui.label(
-                                RichText::new("Для сборок CurseForge нужен API-ключ (Настройки → Моды).")
+                                RichText::new("CurseForge modpacks need an API key (Settings → Mods).")
                                     .color(theme::WARN),
                             );
                         }
@@ -625,7 +649,7 @@ impl App {
                             }
                         }
                         None => {
-                            ui.label("Подготовка…");
+                            ui.label("Preparing…");
                         }
                     }
                 }
@@ -641,11 +665,11 @@ impl App {
                 }
                 ui.horizontal(|ui| {
                     ui.add_enabled_ui(can_start, |ui| {
-                        if accent_btn(ui, "Импортировать", accent).clicked() {
+                        if accent_btn(ui, "Import", accent).clicked() {
                             start = true;
                         }
                     });
-                    if ui.button("Закрыть").clicked() {
+                    if ui.button("Close").clicked() {
                         close = true;
                     }
                 });
@@ -665,7 +689,7 @@ impl App {
         }
     }
 
-    // ---------- время игры ----------
+    // ---------- play time ----------
 
     fn add_playtime(&mut self, id: &str, secs: u64) {
         if secs == 0 {
@@ -677,7 +701,7 @@ impl App {
         }
     }
 
-    /// Сборка сейчас запускается или в неё идёт игра.
+    /// The instance is being launched or the game is running in it.
     fn is_busy_with(&self, id: &str) -> bool {
         let busy = self.progress.as_ref().map_or(false, |p| {
             let s = p.snapshot();
@@ -700,14 +724,14 @@ impl App {
         self.cfg.accounts.iter().find(|a| &a.uuid == id)
     }
 
-    // ---------- фоновые результаты ----------
+    // ---------- background results ----------
 
     fn poll(&mut self) {
         if let Some(r) = self.versions_slot.take() {
             self.versions_loading = false;
             match r {
                 Ok(v) => self.versions = v,
-                Err(e) => self.msg = format!("Не удалось загрузить список версий: {e}"),
+                Err(e) => self.msg = format!("Could not load the version list: {e}"),
             }
         }
         if let Some(r) = self.mod_search_slot.take() {
@@ -715,22 +739,22 @@ impl App {
             match r {
                 Ok(v) => {
                     self.mod_msg = if v.is_empty() {
-                        "Ничего не найдено".to_string()
+                        "Nothing found".to_string()
                     } else {
-                        format!("Найдено: {}", v.len())
+                        format!("Found: {}", v.len())
                     };
                     self.mod_results = v;
                 }
-                Err(e) => self.mod_msg = format!("Ошибка: {e}"),
+                Err(e) => self.mod_msg = format!("Error: {e}"),
             }
         }
         if let Some(r) = self.import_slot.take() {
             self.import_progress = None;
             let done = match r {
                 Ok((inst, warns)) => {
-                    let mut m = format!("Сборка «{}» импортирована и выбрана.", inst.name);
+                    let mut m = format!("Modpack '{}' was imported and selected.", inst.name);
                     if !warns.is_empty() {
-                        m.push_str(&format!(" Не удалось получить файлов: {}.", warns.len()));
+                        m.push_str(&format!(" Files that could not be fetched: {}.", warns.len()));
                     }
                     self.cfg.selected_instance = Some(inst.id.clone());
                     self.cfg.instances.push(inst);
@@ -752,9 +776,9 @@ impl App {
                 st.busy = false;
                 st.done = Some(match r {
                     Ok(res) => {
-                        let mut m = format!("Готово. Модов по ссылкам Modrinth: {}", res.from_modrinth);
+                        let mut m = format!("Done. Mods linked via Modrinth: {}", res.from_modrinth);
                         if res.embedded > 0 {
-                            m.push_str(&format!(", внутри архива: {}", res.embedded));
+                            m.push_str(&format!(", inside the archive: {}", res.embedded));
                         }
                         m.push('.');
                         (true, m, res.warnings, Some(res.path))
@@ -770,15 +794,15 @@ impl App {
         }
     }
 
-    // ---------- действия ----------
+    // ---------- actions ----------
 
     fn play(&mut self) {
         let Some(inst) = self.selected_instance().cloned() else {
-            self.msg = "Выберите сборку".into();
+            self.msg = "Select an instance".into();
             return;
         };
         let Some(acc) = self.selected_account().cloned() else {
-            self.msg = "Создайте аккаунт во вкладке «Аккаунты»".into();
+            self.msg = "Create an account in the \"Accounts\" tab".into();
             self.tab = Tab::Accounts;
             return;
         };
@@ -843,7 +867,7 @@ impl App {
 
     fn save_form(&mut self, f: &InstanceForm) {
         let name = if f.name.trim().is_empty() {
-            "Новая сборка".to_string()
+            "New instance".to_string()
         } else {
             f.name.trim().to_string()
         };
@@ -859,7 +883,7 @@ impl App {
                     i.jvm_args = f.jvm.trim().to_string();
                     i.auto_perf = f.auto_perf;
                     let _ = std::fs::remove_file(i.dir().join(".ferrum_perf"));
-                    // версия загрузчика могла измениться — перерешаем при запуске
+                    // the loader version may have changed — we'll resolve it again at launch
                     let _ = std::fs::remove_file(i.dir().join(".ferrum_version"));
                 }
             }
@@ -895,11 +919,11 @@ impl App {
         let valid = (3..=16).contains(&name.chars().count())
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !valid {
-            self.msg = "Ник: 3–16 символов, только латиница, цифры и «_»".into();
+            self.msg = "Nickname: 3–16 characters, only Latin letters, digits and \"_\"".into();
             return;
         }
         if self.cfg.accounts.iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
-            self.msg = "Аккаунт с таким ником уже есть".into();
+            self.msg = "An account with this nickname already exists".into();
             return;
         }
         let acc = Account::offline(&name, if temporary { Some(24 * 3600) } else { None });
@@ -912,7 +936,7 @@ impl App {
 
     fn start_search(&mut self, inst: &Instance) {
         self.mod_busy = true;
-        self.mod_msg = "Ищу…".into();
+        self.mod_msg = "Searching…".into();
         let http = self.http.clone();
         let slot = self.mod_search_slot.clone();
         let source = self.cfg.settings.mod_source;
@@ -931,7 +955,7 @@ impl App {
 
     fn start_install(&mut self, inst: &Instance, hit: ModHit) {
         self.mod_busy = true;
-        self.mod_msg = format!("Устанавливаю «{}»…", hit.title);
+        self.mod_msg = format!("Installing '{}'…", hit.title);
         let http = self.http.clone();
         let slot = self.mod_msg_slot.clone();
         let key = mods::curseforge_key(&self.cfg.settings.curseforge_key);
@@ -942,22 +966,19 @@ impl App {
             move || {
                 let r = mods::install(&http, hit.source, &key, &hit.id, &mc, loader, &dir);
                 slot.put(match r {
-                    Ok(log) => format!("Установлено: {}", log.join(", ")),
-                    Err(e) => format!("Ошибка: {e:#}"),
+                    Ok(log) => format!("Installed: {}", log.join(", ")),
+                    Err(e) => format!("Error: {e:#}"),
                 });
             },
         );
     }
 
-    // ---------- боковая панель ----------
+    // ---------- sidebar ----------
 
     fn sidebar(&mut self, ctx: &egui::Context) {
         let accent = self.accent();
         let icon_id = self.icon.id();
-        let face = self
-            .selected_account()
-            .and_then(|a| self.faces.get(&a.uuid))
-            .map(|t| t.id());
+        let face = self.selected_account().and_then(|a| self.face_of(a));
         let acc = self
             .selected_account()
             .map(|a| (a.name.clone(), a.expires_at.is_some()));
@@ -972,15 +993,15 @@ impl App {
                     ui.vertical(|ui| {
                         ui.add_space(1.0);
                         ui.label(RichText::new("Ferrum").size(26.0).strong().color(accent));
-                        ui.label(RichText::new("лаунчер Minecraft").small().color(theme::muted()));
+                        ui.label(RichText::new("Minecraft launcher").small().color(theme::muted()));
                     });
                 });
                 ui.add_space(22.0);
                 for (tab, icon, label) in [
-                    (Tab::Instances, Icon::Grid, "Сборки"),
-                    (Tab::Mods, Icon::Download, "Моды"),
-                    (Tab::Accounts, Icon::User, "Аккаунты"),
-                    (Tab::Settings, Icon::Sliders, "Настройки"),
+                    (Tab::Instances, Icon::Grid, "Instances"),
+                    (Tab::Mods, Icon::Download, "Mods"),
+                    (Tab::Accounts, Icon::User, "Accounts"),
+                    (Tab::Settings, Icon::Sliders, "Settings"),
                 ] {
                     if nav_item(ui, icon, label, self.tab == tab, accent).clicked() {
                         self.tab = tab;
@@ -1001,7 +1022,7 @@ impl App {
                                     ui.vertical(|ui| {
                                         ui.label(RichText::new(name).strong());
                                         ui.label(
-                                            RichText::new(if *temp { "временный аккаунт" } else { "офлайн-аккаунт" })
+                                            RichText::new(if *temp { "temporary account" } else { "offline account" })
                                                 .small()
                                                 .color(theme::muted()),
                                         );
@@ -1021,7 +1042,7 @@ impl App {
             });
     }
 
-    // ---------- нижняя панель ----------
+    // ---------- bottom bar ----------
 
     fn bottom_bar(&mut self, ctx: &egui::Context, snap: Option<&ProgressState>) {
         let accent = self.accent();
@@ -1046,7 +1067,7 @@ impl App {
                     ui.vertical(|ui| match snap {
                         Some(s) if s.error.is_some() => {
                             ui.label(
-                                RichText::new("Не удалось запустить — подробности в окне ошибки")
+                                RichText::new("Launch failed — see the error window for details")
                                     .color(theme::DANGER),
                             );
                         }
@@ -1066,12 +1087,12 @@ impl App {
                                 Some((t, ram)) => {
                                     ui.label(RichText::new(t).size(17.0).strong());
                                     ui.label(muted(format!(
-                                        "Память: {:.1} ГБ",
+                                        "Memory: {:.1} GB",
                                         *ram as f32 / 1024.0
                                     )));
                                 }
                                 None => {
-                                    ui.label(muted("Создайте или выберите сборку"));
+                                    ui.label(muted("Create or select an instance"));
                                 }
                             }
                             if !self.msg.is_empty() {
@@ -1081,11 +1102,11 @@ impl App {
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let (text, enabled) = if running {
-                            ("Игра запущена", false)
+                            ("Game running", false)
                         } else if busy {
-                            ("Подготовка…", false)
+                            ("Preparing…", false)
                         } else {
-                            ("Играть", true)
+                            ("Play", true)
                         };
                         if play_button(ui, text, enabled, accent).clicked() {
                             play = true;
@@ -1106,7 +1127,7 @@ impl App {
         egui::CentralPanel::default()
             .frame(Frame::none().fill(theme::bg()).inner_margin(Margin::same(28.0)))
             .show(ctx, |ui| {
-                // свой фон: картинка на всю область + затемнение
+                // custom background: the image over the whole area + dimming
                 if let Some((tid, [tw, th])) = bg {
                     let full = ui.max_rect().expand(28.0);
                     let ia = tw as f32 / th.max(1) as f32;
@@ -1135,7 +1156,7 @@ impl App {
                         Color32::from_rgba_unmultiplied(b.r(), b.g(), b.b(), (dim as f32 * 2.55) as u8),
                     );
                 }
-                // мягкое свечение акцентного цвета сверху страницы
+                // soft glow of the accent color at the top of the page
                 let rect = ui.max_rect().expand(28.0);
                 let alpha = if !glow { 0 } else if theme::is_light() { 34 } else { 40 };
                 let c1 = Color32::from_rgba_unmultiplied(accent.r(), accent.g(), accent.b(), alpha);
@@ -1161,7 +1182,7 @@ impl App {
             });
     }
 
-    // ---------- страница «Сборки» ----------
+    // ---------- “Instances” page ----------
 
     fn page_instances(&mut self, ui: &mut egui::Ui) {
         let accent = self.accent();
@@ -1169,25 +1190,25 @@ impl App {
         let mut import_clicked = false;
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
-                ui.label(RichText::new("Сборки").size(32.0).color(theme::text()));
+                ui.label(RichText::new("Instances").size(32.0).color(theme::text()));
                 ui.label(muted(if self.cfg.instances.is_empty() {
-                    "Создайте первую сборку: версия игры, загрузчик модов, память".to_string()
+                    "Create your first instance: game version, mod loader, memory".to_string()
                 } else {
                     {
                         let total: u64 = self.cfg.instances.iter().map(|i| i.playtime_secs).sum();
-                        let mut t = format!("Всего: {}. Выберите сборку и нажмите «Играть»", self.cfg.instances.len());
+                        let mut t = format!("Total: {}. Select an instance and press \"Play\"", self.cfg.instances.len());
                         if total > 0 {
-                            t.push_str(&format!("  •  наиграно {}", fmt_playtime(total)));
+                            t.push_str(&format!("  •  played {}", fmt_playtime(total)));
                         }
                         t
                     }
                 }));
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if accent_btn(ui, "+  Новая сборка", accent).clicked() {
+                if accent_btn(ui, "+  New instance", accent).clicked() {
                     new_clicked = true;
                 }
-                if ui.button("Импорт").clicked() {
+                if ui.button("Import").clicked() {
                     import_clicked = true;
                 }
             });
@@ -1201,22 +1222,22 @@ impl App {
             ui.horizontal(|ui| {
                 ui.label(RichText::new(&inst.name).size(16.0).color(theme::text()));
                 ui.label(muted(format!(
-                    "наиграно {}  •  запусков {}",
+                    "played {}  •  launches {}",
                     fmt_playtime(inst.playtime_secs),
                     inst.launches
                 )));
-                if ui.button("Изменить").clicked() {
+                if ui.button("Edit").clicked() {
                     edit = Some(inst.clone());
                 }
-                if ui.button("Открыть папку").clicked() {
+                if ui.button("Open folder").clicked() {
                     open_path(&inst.dir());
                 }
-                if ui.button("Экспорт").clicked() {
+                if ui.button("Export").clicked() {
                     export_req = Some(inst.clone());
                 }
                 if ui
-                    .add_enabled(!busy_this, egui::Button::new("Удалить"))
-                    .on_disabled_hover_text("Сборка запускается или в ней идёт игра")
+                    .add_enabled(!busy_this, egui::Button::new("Delete"))
+                    .on_disabled_hover_text("The instance is being launched or the game is running in it")
                     .clicked()
                 {
                     self.confirm_delete = Some(inst.id.clone());
@@ -1261,7 +1282,7 @@ impl App {
         }
     }
 
-    // ---------- окно создания / правки сборки ----------
+    // ---------- create / edit instance window ----------
 
     fn form_window(&mut self, ctx: &egui::Context) {
         let Some(mut form) = self.form.take() else {
@@ -1273,9 +1294,9 @@ impl App {
         let mut keep = true;
         let mut save = false;
         let title = if form.editing.is_some() {
-            "Изменить сборку"
+            "Edit instance"
         } else {
-            "Новая сборка"
+            "New instance"
         };
         egui::Window::new(title)
             .collapsible(false)
@@ -1286,15 +1307,15 @@ impl App {
                     .num_columns(2)
                     .spacing([16.0, 12.0])
                     .show(ui, |ui| {
-                        ui.label("Название");
+                        ui.label("Name");
                         ui.add(
                             TextEdit::singleline(&mut form.name)
-                                .hint_text("Например, «Выживание с техномодами»")
+                                .hint_text("For example, \"Survival with tech mods\"")
                                 .desired_width(320.0),
                         );
                         ui.end_row();
 
-                        ui.label("Версия игры");
+                        ui.label("Game version");
                         ui.vertical(|ui| {
                             if self.versions.is_empty() {
                                 ui.add(
@@ -1303,9 +1324,9 @@ impl App {
                                         .desired_width(140.0),
                                 );
                                 ui.label(muted(if self.versions_loading {
-                                    "Загружаю список версий…"
+                                    "Loading the version list…"
                                 } else {
-                                    "Список версий недоступен — введите номер вручную"
+                                    "Version list unavailable — enter the number manually"
                                 }));
                             } else {
                                 let snaps = form.snapshots;
@@ -1321,12 +1342,12 @@ impl App {
                                             ui.selectable_value(&mut form.mc, v.id.clone(), v.id.as_str());
                                         }
                                     });
-                                ui.checkbox(&mut form.snapshots, "Показывать снапшоты");
+                                ui.checkbox(&mut form.snapshots, "Show snapshots");
                             }
                         });
                         ui.end_row();
 
-                        ui.label("Загрузчик модов");
+                        ui.label("Mod loader");
                         ui.horizontal(|ui| {
                             for l in Loader::ALL {
                                 ui.selectable_value(&mut form.loader, l, l.label());
@@ -1334,20 +1355,20 @@ impl App {
                         });
                         ui.end_row();
 
-                        ui.label("Версия загрузчика");
+                        ui.label("Loader version");
                         ui.add(
                             TextEdit::singleline(&mut form.loader_ver)
-                                .hint_text("пусто — подобрать последнюю")
+                                .hint_text("empty — pick the latest")
                                 .desired_width(320.0),
                         );
                         ui.end_row();
 
-                        ui.label("Оперативная память");
+                        ui.label("Memory (RAM)");
                         ui.vertical(|ui| {
                             ui.checkbox(
                                 &mut form.custom_ram,
                                 format!(
-                                    "Своя для этой сборки (по умолчанию {:.1} ГБ)",
+                                    "Custom for this instance (default {:.1} GB)",
                                     default_ram as f32 / 1024.0
                                 ),
                             );
@@ -1355,33 +1376,33 @@ impl App {
                                 ui.add(
                                     egui::Slider::new(&mut form.ram_mb, 1024..=max_ram)
                                         .step_by(256.0)
-                                        .suffix(" МБ"),
+                                        .suffix(" MB"),
                                 );
                             }
                         });
                         ui.end_row();
 
-                        ui.label("JVM-аргументы");
+                        ui.label("JVM arguments");
                         ui.add(
                             TextEdit::singleline(&mut form.jvm)
-                                .hint_text("дополнительно к общим")
+                                .hint_text("in addition to the global ones")
                                 .desired_width(320.0),
                         );
                         ui.end_row();
 
-                        ui.label("Оптимизация");
+                        ui.label("Optimization");
                         ui.checkbox(
                             &mut form.auto_perf,
-                            "Ставить автоматически: Sodium (Fabric, Quilt, NeoForge) или OptiFine (Forge)",
+                            "Install automatically: Sodium (Fabric, Quilt, NeoForge) or OptiFine (Forge)",
                         );
                         ui.end_row();
                     });
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
-                    if accent_btn(ui, "Сохранить", accent).clicked() {
+                    if accent_btn(ui, "Save", accent).clicked() {
                         save = true;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button("Cancel").clicked() {
                         keep = false;
                     }
                 });
@@ -1404,26 +1425,26 @@ impl App {
             return;
         };
         let (mut yes, mut no) = (false, false);
-        egui::Window::new("Удалить сборку?")
+        egui::Window::new("Delete instance?")
             .collapsible(false)
             .resizable(false)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 ui.label(format!(
-                    "«{}» будет удалена вместе с модами, мирами и настройками.",
+                    "'{}' will be deleted together with its mods, worlds and settings.",
                     inst.name
                 ));
                 ui.horizontal(|ui| {
                     if ui
                         .add(
-                            egui::Button::new(RichText::new("Удалить").color(Color32::WHITE))
+                            egui::Button::new(RichText::new("Delete").color(Color32::WHITE))
                                 .fill(theme::DANGER),
                         )
                         .clicked()
                     {
                         yes = true;
                     }
-                    if ui.button("Отмена").clicked() {
+                    if ui.button("Cancel").clicked() {
                         no = true;
                     }
                 });
@@ -1446,7 +1467,7 @@ impl App {
             return;
         };
         let mut close = false;
-        egui::Window::new("Ошибка запуска")
+        egui::Window::new("Launch error")
             .collapsible(false)
             .resizable(true)
             .anchor(Align2::CENTER_CENTER, [0.0, 0.0])
@@ -1457,10 +1478,10 @@ impl App {
                     ui.add(TextEdit::multiline(&mut text).desired_width(f32::INFINITY));
                 });
                 ui.horizontal(|ui| {
-                    if ui.button("Открыть папку логов").clicked() {
+                    if ui.button("Open logs folder").clicked() {
                         open_path(&logs_dir());
                     }
-                    if ui.button("Закрыть").clicked() {
+                    if ui.button("Close").clicked() {
                         close = true;
                     }
                 });
@@ -1470,7 +1491,7 @@ impl App {
         }
     }
 
-    // ---------- пользовательское соглашение ----------
+    // ---------- terms of use ----------
 
     fn terms_screen(&mut self, ctx: &egui::Context) {
         let accent = self.accent();
@@ -1482,8 +1503,8 @@ impl App {
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
                     ui.add(egui::Image::new((icon_id, vec2(80.0, 80.0))));
-                    ui.heading("Добро пожаловать в Ferrum Launcher");
-                    ui.label(muted("Перед началом прочитайте и примите пользовательское соглашение."));
+                    ui.heading("Welcome to Ferrum Launcher");
+                    ui.label(muted("Read and accept the terms of use before you start."));
                     ui.add_space(6.0);
                     card_frame(false, accent).show(ui, |ui| {
                         ui.set_width(740.0);
@@ -1491,13 +1512,13 @@ impl App {
                             ui.label(terms::TERMS_TEXT);
                         });
                     });
-                    ui.checkbox(&mut self.terms_checked, "Я прочитал(а) соглашение и принимаю его условия");
+                    ui.checkbox(&mut self.terms_checked, "I have read the agreement and accept its terms");
                     ui.add_enabled_ui(self.terms_checked, |ui| {
-                        if accent_btn(ui, "Принять и продолжить", accent).clicked() {
+                        if accent_btn(ui, "Accept and continue", accent).clicked() {
                             accept = true;
                         }
                     });
-                    if ui.button("Отказаться и выйти").clicked() {
+                    if ui.button("Decline and exit").clicked() {
                         decline = true;
                     }
                 });
@@ -1511,24 +1532,24 @@ impl App {
         }
     }
 
-    // ---------- страница «Моды» ----------
+    // ---------- “Mods” page ----------
 
     fn page_mods(&mut self, ui: &mut egui::Ui) {
         let accent = self.accent();
-        ui.heading("Моды");
+        ui.heading("Mods");
         let Some(inst) = self.selected_instance().cloned() else {
-            ui.label(muted("Сначала выберите сборку на вкладке «Сборки»."));
+            ui.label(muted("First select an instance on the \"Instances\" tab."));
             return;
         };
         if inst.loader == Loader::Vanilla {
             ui.label(muted(format!(
-                "У сборки «{}» нет загрузчика модов. Откройте «Сборки» → «Изменить» и выберите Fabric, Quilt, Forge или NeoForge.",
+                "Instance '{}' has no mod loader. Open \"Instances\" → \"Edit\" and choose Fabric, Quilt, Forge or NeoForge.",
                 inst.name
             )));
             return;
         }
         ui.label(muted(format!(
-            "Сборка «{}»: Minecraft {}, {}",
+            "Instance '{}': Minecraft {}, {}",
             inst.name,
             inst.mc_version,
             inst.loader.label()
@@ -1536,7 +1557,7 @@ impl App {
 
         let mut changed = false;
         ui.horizontal(|ui| {
-            ui.label("Источник:");
+            ui.label("Source:");
             for s in [ModSource::Modrinth, ModSource::CurseForge] {
                 if ui
                     .selectable_value(&mut self.cfg.settings.mod_source, s, s.label())
@@ -1557,10 +1578,10 @@ impl App {
         if cf_missing {
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Для CurseForge нужен API-ключ (бесплатный, console.curseforge.com).")
+                    RichText::new("CurseForge needs an API key (free, console.curseforge.com).")
                         .color(theme::WARN),
                 );
-                if ui.button("Открыть настройки").clicked() {
+                if ui.button("Open settings").clicked() {
                     self.tab = Tab::Settings;
                 }
             });
@@ -1570,10 +1591,10 @@ impl App {
         ui.horizontal(|ui| {
             let te = ui.add(
                 TextEdit::singleline(&mut self.mod_query)
-                    .hint_text("Название мода: sodium, jei, create…")
+                    .hint_text("Mod name: sodium, jei, create…")
                     .desired_width(380.0),
             );
-            if accent_btn(ui, "Найти", accent).clicked() {
+            if accent_btn(ui, "Search", accent).clicked() {
                 go = true;
             }
             if te.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -1587,7 +1608,7 @@ impl App {
             ui.label(muted(self.mod_msg.clone()));
         }
 
-        // результаты поиска
+        // search results
         let hits = self.mod_results.clone();
         for hit in hits {
             card_frame(false, accent).show(ui, |ui| {
@@ -1595,13 +1616,13 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(&hit.title).size(16.0).strong());
                     ui.label(muted(format!(
-                        "{}  •  {} загрузок",
+                        "{}  •  {} downloads",
                         hit.author,
                         fmt_num(hit.downloads)
                     )));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let b = egui::Button::new(
-                            RichText::new("Установить").color(theme::on_accent(accent)),
+                            RichText::new("Install").color(theme::on_accent(accent)),
                         )
                         .fill(accent);
                         if ui.add_enabled(!self.mod_busy, b).clicked() {
@@ -1614,7 +1635,7 @@ impl App {
             });
         }
 
-        // установленные моды
+        // installed mods
         if self.installed_for.as_deref() != Some(inst.id.as_str()) {
             self.installed = mods::list_installed(&inst.mods_dir());
             self.installed_for = Some(inst.id.clone());
@@ -1622,31 +1643,31 @@ impl App {
         ui.add_space(14.0);
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(format!("Установленные моды ({})", self.installed.len()))
+                RichText::new(format!("Installed mods ({})", self.installed.len()))
                     .size(18.0)
                     .strong(),
             );
-            if ui.button("Папка модов").clicked() {
+            if ui.button("Mods folder").clicked() {
                 open_path(&inst.mods_dir());
             }
-            if ui.button("Обновить").clicked() {
+            if ui.button("Refresh").clicked() {
                 self.installed_for = None;
             }
         });
         let list = self.installed.clone();
-        let mut action: Option<(InstalledMod, bool)> = None; // (мод, true = удалить)
+        let mut action: Option<(InstalledMod, bool)> = None; // (mod, true = remove)
         for m in &list {
             ui.horizontal(|ui| {
                 let color = if m.enabled { theme::text() } else { theme::muted() };
                 ui.label(RichText::new(m.file.trim_end_matches(".disabled")).color(color));
                 if !m.enabled {
-                    ui.label(muted("(выключен)"));
+                    ui.label(muted("(disabled)"));
                 }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if ui.button("Удалить").clicked() {
+                    if ui.button("Delete").clicked() {
                         action = Some((m.clone(), true));
                     }
-                    if ui.button(if m.enabled { "Выключить" } else { "Включить" }).clicked() {
+                    if ui.button(if m.enabled { "Disable" } else { "Enable" }).clicked() {
                         action = Some((m.clone(), false));
                     }
                 });
@@ -1661,32 +1682,32 @@ impl App {
             self.installed_for = None;
         }
         if list.is_empty() {
-            ui.label(muted("Пока нет модов. Найдите нужный через поиск выше."));
+            ui.label(muted("No mods yet. Find one with the search above."));
         }
     }
 
-    // ---------- страница «Аккаунты» ----------
+    // ---------- “Accounts” page ----------
 
     fn page_accounts(&mut self, ui: &mut egui::Ui) {
         let accent = self.accent();
         let ctx = ui.ctx().clone();
-        ui.heading("Аккаунты");
+        ui.heading("Accounts");
         ui.label(muted(
-            "Офлайн-аккаунты работают в одиночной игре и на серверах с online-mode=false. Лицензионные серверы их не пускают.",
+            "Offline accounts work in singleplayer and on servers with online-mode=false. Licensed servers don't let them in.",
         ));
         let (mut add, mut add_temp) = (false, false);
         ui.horizontal(|ui| {
             let te = ui.add(
                 TextEdit::singleline(&mut self.nick)
-                    .hint_text("Ник: латиница, цифры, _")
+                    .hint_text("Nickname: Latin letters, digits, _")
                     .desired_width(260.0),
             );
-            if accent_btn(ui, "Добавить", accent).clicked()
+            if accent_btn(ui, "Add", accent).clicked()
                 || (te.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)))
             {
                 add = true;
             }
-            if ui.button("Временный (24 часа)").clicked() {
+            if ui.button("Temporary (24 hours)").clicked() {
                 add_temp = true;
             }
         });
@@ -1704,10 +1725,12 @@ impl App {
         let accounts = self.cfg.accounts.clone();
         let (mut sel, mut del, mut toggle_skin): (Option<String>, Option<String>, Option<String>) =
             (None, None, None);
-        let mut skin_action: Option<(String, bool)> = None; // (аккаунт, true = убрать)
+        let mut toggle_avatar: Option<String> = None;
+        let mut avatar_pick: Option<(String, Option<String>)> = None; // (account, preset id; None = auto)
+        let mut skin_action: Option<(String, bool)> = None; // (account, true = remove)
         for a in &accounts {
             let selected = self.cfg.selected_account.as_deref() == Some(a.uuid.as_str());
-            let face = self.faces.get(&a.uuid).map(|t| t.id());
+            let face = self.face_of(a);
             card_frame(selected, accent).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.horizontal(|ui| {
@@ -1717,43 +1740,74 @@ impl App {
                         let kind = match a.expires_at {
                             Some(e) => {
                                 let s = e.saturating_sub(now());
-                                format!("временный, осталось {} ч {} мин", s / 3600, (s % 3600) / 60)
+                                format!("temporary, {}h {}m left", s / 3600, (s % 3600) / 60)
                             }
-                            None => "офлайн-аккаунт".to_string(),
+                            None => "offline account".to_string(),
                         };
                         ui.label(muted(kind));
                     });
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("Удалить").clicked() {
+                        if ui.button("Delete").clicked() {
                             del = Some(a.uuid.clone());
                         }
-                        if ui.button("Скин").clicked() {
+                        if ui.button("Skin").clicked() {
                             toggle_skin = Some(a.uuid.clone());
                         }
-                        if !selected && ui.button("Выбрать").clicked() {
+                        if ui.button("Avatar").clicked() {
+                            toggle_avatar = Some(a.uuid.clone());
+                        }
+                        if !selected && ui.button("Select").clicked() {
                             sel = Some(a.uuid.clone());
                         }
                     });
                 });
             });
+            if self.avatar_edit.as_deref() == Some(a.uuid.as_str()) {
+                card_frame(false, accent).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new("Account avatar").size(16.0).color(theme::text()));
+                    ui.label(muted(
+                        "Pick a head for this account. It is shown in the launcher only. \"Auto\" uses the face of the account's skin, or the first letter of the nickname.",
+                    ));
+                    ui.add_space(4.0);
+                    // an id that is not in the list (e.g. from another version) counts as "Auto"
+                    let current = a
+                        .avatar
+                        .as_deref()
+                        .filter(|id| avatar::PRESETS.iter().any(|p| p.id == *id));
+                    ui.horizontal_wrapped(|ui| {
+                        let auto_face = self.faces.get(&a.uuid).map(|t| t.id());
+                        if avatar_tile(ui, auto_face, &a.name, "Auto", current.is_none(), accent).clicked() {
+                            avatar_pick = Some((a.uuid.clone(), None));
+                        }
+                        for p in avatar::PRESETS {
+                            let tex = self.avatar_tex.get(p.id).map(|t| t.id());
+                            let chosen = current == Some(p.id);
+                            if avatar_tile(ui, tex, p.name, p.name, chosen, accent).clicked() {
+                                avatar_pick = Some((a.uuid.clone(), Some(p.id.to_string())));
+                            }
+                        }
+                    });
+                });
+            }
             if self.skin_edit.as_deref() == Some(a.uuid.as_str()) {
                 card_frame(false, accent).show(ui, |ui| {
                     ui.set_width(ui.available_width());
-                    ui.label(RichText::new("Скин аккаунта").size(16.0).color(theme::text()));
+                    ui.label(RichText::new("Account skin").size(16.0).color(theme::text()));
                     ui.label(muted(skin::SKIN_RULES));
                     ui.label(muted(
-                        "В игре скин показывает мод CustomSkinLoader, лаунчер ставит его сам. Нужна сборка с Fabric, Quilt, Forge или NeoForge.",
+                        "In the game the skin is shown by the CustomSkinLoader mod; the launcher installs it itself. Requires an instance with Fabric, Quilt, Forge or NeoForge.",
                     ));
                     ui.horizontal(|ui| {
                         ui.add(
                             TextEdit::singleline(&mut self.skin_path_input)
-                                .hint_text("Путь к PNG или перетащите файл в окно")
+                                .hint_text("Path to a PNG or drag the file into the window")
                                 .desired_width(420.0),
                         );
-                        if ui.button("Применить").clicked() {
+                        if ui.button("Apply").clicked() {
                             skin_action = Some((a.uuid.clone(), false));
                         }
-                        if skin::has(&a.uuid) && ui.button("Убрать скин").clicked() {
+                        if skin::has(&a.uuid) && ui.button("Remove skin").clicked() {
                             skin_action = Some((a.uuid.clone(), true));
                         }
                     });
@@ -1766,6 +1820,15 @@ impl App {
         if let Some(u) = sel {
             self.cfg.selected_account = Some(u);
             self.dirty = true;
+        }
+        if let Some(u) = toggle_avatar {
+            self.avatar_edit = if self.avatar_edit.as_deref() == Some(u.as_str()) { None } else { Some(u) };
+        }
+        if let Some((u, id)) = avatar_pick {
+            if let Some(acc) = self.cfg.accounts.iter_mut().find(|a| a.uuid == u) {
+                acc.avatar = id;
+                self.dirty = true;
+            }
         }
         if let Some(u) = toggle_skin {
             self.skin_edit = if self.skin_edit.as_deref() == Some(u.as_str()) { None } else { Some(u) };
@@ -1784,99 +1847,99 @@ impl App {
             self.dirty = true;
         }
         if accounts.is_empty() {
-            ui.label(muted("Аккаунтов пока нет. Введите ник или создайте временный одним кликом."));
+            ui.label(muted("No accounts yet. Enter a nickname or create a temporary one with one click."));
         }
     }
 
-    // ---------- страница «Настройки» ----------
+    // ---------- “Settings” page ----------
 
     fn page_settings(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Настройки");
+        ui.heading("Settings");
         let max_ram = self.sys_ram_mb.max(4096);
         let sys = self.sys_ram_mb;
         let mut ch = false;
         let accent_now = self.accent();
         let ctx = ui.ctx().clone();
 
-        section(ui, "Игра", |ui| {
+        section(ui, "Game", |ui| {
             let s = &mut self.cfg.settings;
-            ui.label("Память по умолчанию");
+            ui.label("Default memory");
             ch |= ui
-                .add(egui::Slider::new(&mut s.ram_mb, 1024..=max_ram).step_by(256.0).suffix(" МБ"))
+                .add(egui::Slider::new(&mut s.ram_mb, 1024..=max_ram).step_by(256.0).suffix(" MB"))
                 .changed();
-            ui.label(muted(format!("В системе: {:.1} ГБ", sys as f32 / 1024.0)));
+            ui.label(muted(format!("System: {:.1} GB", sys as f32 / 1024.0)));
             if s.ram_mb as f32 > sys as f32 * 0.75 {
                 ui.label(
-                    RichText::new("Это больше 75% памяти компьютера — системе может не хватить.")
+                    RichText::new("That is more than 75% of the computer's memory — the system may run short.")
                         .color(theme::WARN),
                 );
             }
-            ui.label("JVM-аргументы");
+            ui.label("JVM arguments");
             ch |= ui
                 .add(TextEdit::singleline(&mut s.jvm_args).desired_width(f32::INFINITY))
                 .changed();
             ui.horizontal(|ui| {
-                ui.label("Окно игры");
+                ui.label("Game window");
                 ch |= ui
-                    .add(egui::Slider::new(&mut s.win_w, 640..=3840).text("ширина"))
+                    .add(egui::Slider::new(&mut s.win_w, 640..=3840).text("width"))
                     .changed();
             });
             ui.horizontal(|ui| {
                 ui.add_space(70.0);
                 ch |= ui
-                    .add(egui::Slider::new(&mut s.win_h, 480..=2160).text("высота"))
+                    .add(egui::Slider::new(&mut s.win_h, 480..=2160).text("height"))
                     .changed();
             });
-            ch |= ui.checkbox(&mut s.fullscreen, "Запускать в полноэкранном режиме").changed();
+            ch |= ui.checkbox(&mut s.fullscreen, "Launch in fullscreen mode").changed();
             ch |= ui
-                .checkbox(&mut s.hide_launcher, "Сворачивать лаунчер, пока идёт игра")
+                .checkbox(&mut s.hide_launcher, "Minimize the launcher while the game is running")
                 .changed();
         });
 
         section(ui, "Java", |ui| {
             let s = &mut self.cfg.settings;
             ch |= ui
-                .checkbox(&mut s.auto_java, "Подбирать и скачивать Java автоматически")
+                .checkbox(&mut s.auto_java, "Pick and download Java automatically")
                 .changed();
             ui.label(muted(
-                "Для каждой версии игры лаунчер возьмёт нужную Java (8, 17 или 21) из системы или скачает сам.",
+                "For each game version the launcher will use the right Java (8, 17 or 21) from the system or download it itself.",
             ));
             ui.add_enabled_ui(!s.auto_java, |ui| {
                 ch |= ui
                     .add(
                         TextEdit::singleline(&mut s.java_path)
-                            .hint_text("Путь к java / javaw, например C:\\Java\\bin\\java.exe")
+                            .hint_text("Path to java / javaw, for example C:\\Java\\bin\\java.exe")
                             .desired_width(f32::INFINITY),
                     )
                     .changed();
             });
         });
 
-        section(ui, "Моды", |ui| {
+        section(ui, "Mods", |ui| {
             let s = &mut self.cfg.settings;
             ui.horizontal(|ui| {
-                ui.label("Источник по умолчанию");
+                ui.label("Default source");
                 for src in [ModSource::Modrinth, ModSource::CurseForge] {
                     ch |= ui
                         .selectable_value(&mut s.mod_source, src, src.label())
                         .changed();
                 }
             });
-            ui.label("API-ключ CurseForge");
+            ui.label("CurseForge API key");
             ch |= ui
                 .add(
                     TextEdit::singleline(&mut s.curseforge_key)
                         .password(true)
-                        .hint_text("Бесплатный ключ: console.curseforge.com")
+                        .hint_text("Free key: console.curseforge.com")
                         .desired_width(f32::INFINITY),
                 )
                 .changed();
-            ui.label(muted("Modrinth работает без ключа."));
+            ui.label(muted("Modrinth works without a key."));
         });
 
-        section(ui, "Оформление", |ui| {
+        section(ui, "Appearance", |ui| {
             let s = &mut self.cfg.settings;
-            ui.label("Цвет интерфейса");
+            ui.label("Interface color");
             ui.horizontal_wrapped(|ui| {
                 for (i, (name, col)) in theme::ACCENTS.iter().enumerate() {
                     let sel = !s.use_custom_accent && s.accent == i;
@@ -1887,7 +1950,7 @@ impl App {
                     }
                 }
                 ui.add_space(8.0);
-                ui.label("Свой цвет:");
+                ui.label("Custom color:");
                 let mut rgb = s.custom_accent;
                 if egui::color_picker::color_edit_button_srgb(ui, &mut rgb).changed() {
                     s.custom_accent = rgb;
@@ -1901,7 +1964,7 @@ impl App {
             });
 
             ui.add_space(4.0);
-            ui.label("Фон");
+            ui.label("Background");
             ui.horizontal_wrapped(|ui| {
                 for (i, p) in theme::PALETTES.iter().enumerate() {
                     if palette_card(ui, p, s.palette == i, accent_now).clicked() {
@@ -1912,9 +1975,9 @@ impl App {
             });
 
             ui.add_space(4.0);
-            ui.label("Скругление углов");
+            ui.label("Corner style");
             ui.horizontal(|ui| {
-                for (label, v) in [("Острые", 0u32), ("Мягкие", 1), ("Круглые", 2)] {
+                for (label, v) in [("Sharp", 0u32), ("Soft", 1), ("Round", 2)] {
                     if ui.selectable_label(s.radius == v, label).clicked() {
                         s.radius = v;
                         ch = true;
@@ -1922,11 +1985,11 @@ impl App {
                 }
             });
             ch |= ui
-                .checkbox(&mut s.glow, "Свечение акцентного цвета сверху страницы")
+                .checkbox(&mut s.glow, "Accent color glow at the top of the page")
                 .changed();
 
             ui.add_space(4.0);
-            ui.label("Масштаб интерфейса");
+            ui.label("Interface scale");
             ui.horizontal(|ui| {
                 for (label, v) in [("90%", 0.9_f32), ("100%", 1.0), ("110%", 1.1), ("125%", 1.25), ("150%", 1.5)] {
                     if ui.selectable_label((s.ui_scale - v).abs() < 0.01, label).clicked() {
@@ -1935,7 +1998,7 @@ impl App {
                     }
                 }
             });
-            if ui.button("Сбросить оформление").clicked() {
+            if ui.button("Reset appearance").clicked() {
                 s.use_custom_accent = false;
                 s.accent = 0;
                 s.palette = 0;
@@ -1946,42 +2009,42 @@ impl App {
             }
         });
 
-        let mut act: Option<(CustomKind, bool)> = None; // (что, true = убрать)
+        let mut act: Option<(CustomKind, bool)> = None; // (what, true = remove)
         let (has_bg, has_icon) = (self.cfg.settings.has_bg, self.cfg.settings.has_icon);
-        section(ui, "Свои изображения", |ui| {
-            ui.label("Фон интерфейса");
+        section(ui, "Custom images", |ui| {
+            ui.label("Interface background");
             ui.label(muted(custom::BG_RULES));
             ui.horizontal(|ui| {
                 ui.add(
                     TextEdit::singleline(&mut self.bg_path_input)
-                        .hint_text("Путь к файлу или перетащите картинку в окно")
+                        .hint_text("Path to a file or drag an image into the window")
                         .desired_width(420.0),
                 );
-                if ui.button("Применить").clicked() {
+                if ui.button("Apply").clicked() {
                     act = Some((CustomKind::Background, false));
                 }
-                if has_bg && ui.button("Убрать фон").clicked() {
+                if has_bg && ui.button("Remove background").clicked() {
                     act = Some((CustomKind::Background, true));
                 }
             });
             if has_bg {
                 ch |= ui
-                    .add(egui::Slider::new(&mut self.cfg.settings.bg_dim, 0..=95).text("затемнение").suffix("%"))
+                    .add(egui::Slider::new(&mut self.cfg.settings.bg_dim, 0..=95).text("dimming").suffix("%"))
                     .changed();
             }
             ui.separator();
-            ui.label("Иконка лаунчера");
+            ui.label("Launcher icon");
             ui.label(muted(custom::ICON_RULES));
             ui.horizontal(|ui| {
                 ui.add(
                     TextEdit::singleline(&mut self.icon_path_input)
-                        .hint_text("Путь к файлу или перетащите картинку в окно")
+                        .hint_text("Path to a file or drag an image into the window")
                         .desired_width(420.0),
                 );
-                if ui.button("Применить").clicked() {
+                if ui.button("Apply").clicked() {
                     act = Some((CustomKind::Icon, false));
                 }
-                if has_icon && ui.button("Вернуть стандартную").clicked() {
+                if has_icon && ui.button("Restore default").clicked() {
                     act = Some((CustomKind::Icon, true));
                 }
             });
@@ -2002,20 +2065,20 @@ impl App {
             }
         }
 
-        section(ui, "Данные", |ui| {
+        section(ui, "Data", |ui| {
             ui.label(muted(data_dir().display().to_string()));
             ui.horizontal(|ui| {
-                if ui.button("Открыть папку данных").clicked() {
+                if ui.button("Open data folder").clicked() {
                     open_path(&data_dir());
                 }
-                if ui.button("Открыть папку логов").clicked() {
+                if ui.button("Open logs folder").clicked() {
                     open_path(&logs_dir());
                 }
             });
-            ui.label(muted("Логи запусков: logs/launches. При краше игры всё нужное копируется в logs/crashes."));
+            ui.label(muted("Launch logs: logs/launches. When the game crashes, everything needed is copied to logs/crashes."));
         });
 
-        ui.label(muted(format!("Ferrum Launcher v{VERSION}  •  лицензия MIT")));
+        ui.label(muted(format!("Ferrum Launcher v{VERSION}  •  MIT license")));
         if ch {
             self.dirty = true;
         }
@@ -2039,7 +2102,7 @@ impl eframe::App for App {
             self.terms_screen(ctx);
             return;
         }
-        // перетаскивание файлов в окно
+        // dragging files into the window
         let dropped: Vec<std::path::PathBuf> = ctx.input(|i| {
             i.raw
                 .dropped_files
@@ -2071,7 +2134,7 @@ impl eframe::App for App {
             painter.text(
                 r.center(),
                 Align2::CENTER_CENTER,
-                "Отпустите файл: картинку (фон, иконка, скин) или сборку (.mrpack, .zip)",
+                "Drop the file: an image (background, icon, skin) or a modpack (.mrpack, .zip)",
                 FontId::proportional(22.0),
                 Color32::WHITE,
             );
@@ -2086,7 +2149,7 @@ impl eframe::App for App {
             self.prev_running = s.running;
         }
 
-        // время игры: пока идёт игра, дописываем каждые 30 с, при выходе сверяем точное значение
+        // play time: while the game runs we add it every 30 s, on exit we reconcile the exact value
         if let Some(sn) = &snap {
             if let (Some(start), Some(id)) = (sn.play_started, self.running_inst.clone()) {
                 if sn.running {
@@ -2128,7 +2191,7 @@ impl eframe::App for App {
     }
 }
 
-// ---------- мелкие помощники интерфейса ----------
+// ---------- small UI helpers ----------
 
 fn accent_btn(ui: &mut egui::Ui, text: &str, accent: Color32) -> egui::Response {
     ui.add(
@@ -2175,23 +2238,67 @@ fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
 
 fn avatar(ui: &mut egui::Ui, name: &str, color: Color32, size: f32, face: Option<egui::TextureId>) {
     let (rect, _) = ui.allocate_exact_size(vec2(size, size), Sense::hover());
+    paint_avatar(ui.painter(), rect, name, color, face);
+}
+
+/// A clickable tile of the avatar picker: the picture, a name under it and a frame when chosen.
+fn avatar_tile(
+    ui: &mut egui::Ui,
+    face: Option<egui::TextureId>,
+    name: &str,
+    label: &str,
+    chosen: bool,
+    accent: Color32,
+) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(76.0, 92.0), Sense::click());
+    let painter = ui.painter();
+    if chosen {
+        painter.rect_filled(rect, theme::round(10.0), accent.gamma_multiply(0.2));
+    } else if resp.hovered() {
+        painter.rect_filled(rect, theme::round(10.0), theme::hover());
+    }
+    painter.rect_stroke(
+        rect,
+        theme::round(10.0),
+        Stroke::new(if chosen { 2.0 } else { 1.0 }, if chosen { accent } else { theme::border() }),
+    );
+    let pic = egui::Rect::from_min_size(rect.min + vec2(10.0, 8.0), vec2(56.0, 56.0));
+    paint_avatar(painter, pic, name, accent, face);
+    painter.text(
+        egui::pos2(rect.center().x, rect.max.y - 14.0),
+        Align2::CENTER_CENTER,
+        label,
+        FontId::proportional(13.0),
+        theme::text(),
+    );
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
+fn paint_avatar(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    name: &str,
+    color: Color32,
+    face: Option<egui::TextureId>,
+) {
+    let size = rect.width();
     if let Some(tid) = face {
-        ui.painter().image(
+        painter.image(
             tid,
             rect,
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             Color32::WHITE,
         );
-        ui.painter().rect_stroke(rect, 0.0, Stroke::new(1.0, theme::border()));
+        painter.rect_stroke(rect, 0.0, Stroke::new(1.0, theme::border()));
         return;
     }
-    ui.painter().circle_filled(rect.center(), size / 2.0, color);
+    painter.circle_filled(rect.center(), size / 2.0, color);
     let letter = name
         .chars()
         .next()
         .map(|c| c.to_uppercase().to_string())
         .unwrap_or_else(|| "?".to_string());
-    ui.painter().text(
+    painter.text(
         rect.center(),
         Align2::CENTER_CENTER,
         letter,
@@ -2201,7 +2308,7 @@ fn avatar(ui: &mut egui::Ui, name: &str, color: Color32, size: f32, face: Option
 }
 
 
-// ---------- рисованные элементы интерфейса ----------
+// ---------- custom-drawn UI elements ----------
 
 fn accent_of(s: &Settings) -> Color32 {
     if s.use_custom_accent {
@@ -2297,17 +2404,17 @@ fn paint_chip(p: &egui::Painter, pos: egui::Pos2, text: &str, fg: Color32, bg: C
 
 fn ago(ts: u64) -> String {
     if ts == 0 {
-        return "ещё не запускали".to_string();
+        return "never launched".to_string();
     }
     let d = now().saturating_sub(ts);
     if d < 60 {
-        "только что".to_string()
+        "just now".to_string()
     } else if d < 3600 {
-        format!("{} мин назад", d / 60)
+        format!("{} min ago", d / 60)
     } else if d < 86400 {
-        format!("{} ч назад", d / 3600)
+        format!("{}h ago", d / 3600)
     } else {
-        format!("{} дн назад", d / 86400)
+        format!("{}d ago", d / 86400)
     }
 }
 
@@ -2333,7 +2440,7 @@ fn instance_card(
         let border = theme::border().lerp_to_gamma(accent, st.max(t * 0.5));
         p.rect_stroke(rect, theme::round(16.0), Stroke::new(1.0 + st, border));
 
-        // эмблема с первой буквой
+        // emblem with the first letter
         let em = egui::Rect::from_min_size(rect.min + vec2(16.0, 16.0), vec2(48.0, 48.0));
         p.rect_filled(em, theme::round(13.0), accent.linear_multiply(0.22));
         let letter = inst
@@ -2355,7 +2462,7 @@ fn instance_card(
             FontId::proportional(17.0),
             theme::text(),
         );
-        // на светлых палитрах метки загрузчика темнее, иначе их не прочитать
+        // on light palettes the loader tags are darker, otherwise they can't be read
         let lc = {
             let c = loader_color(inst.loader);
             if theme::is_light() {
@@ -2381,14 +2488,14 @@ fn instance_card(
         p.text(
             rect.min + vec2(16.0, 88.0),
             Align2::LEFT_TOP,
-            format!("Наиграно: {}", fmt_playtime(inst.playtime_secs)),
+            format!("Played: {}", fmt_playtime(inst.playtime_secs)),
             FontId::proportional(13.0),
             theme::text(),
         );
         p.text(
             rect.min + vec2(16.0, 110.0),
             Align2::LEFT_TOP,
-            format!("Память {:.1} ГБ  •  {}", ram_mb as f32 / 1024.0, ago(inst.last_played)),
+            format!("Memory {:.1} GB  •  {}", ram_mb as f32 / 1024.0, ago(inst.last_played)),
             FontId::proportional(12.5),
             theme::muted(),
         );
@@ -2413,7 +2520,7 @@ fn add_card(ui: &mut egui::Ui, accent: Color32) -> egui::Response {
         p.text(
             rect.center() + vec2(0.0, 28.0),
             Align2::CENTER_CENTER,
-            "Новая сборка",
+            "New instance",
             FontId::proportional(15.0),
             theme::muted().lerp_to_gamma(accent, t),
         );

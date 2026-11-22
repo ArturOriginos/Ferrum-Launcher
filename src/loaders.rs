@@ -7,8 +7,8 @@ use reqwest::blocking::Client;
 use serde_json::Value;
 use std::{fs, io::Read, path::Path, process::Command};
 
-/// Возвращает id версии, которую нужно запускать (vanilla / fabric-loader-… / neoforge-…).
-/// Результат кэшируется в папке сборки, чтобы не ходить в сеть при каждом запуске.
+/// Returns the id of the version to launch (vanilla / fabric-loader-… / neoforge-…).
+/// The result is cached in the instance folder so we don't hit the network on every launch.
 pub fn resolve_id(
     http: &Client,
     root: &Path,
@@ -45,10 +45,10 @@ fn fabric_like(
     want: &str,
     progress: &Progress,
 ) -> Result<String> {
-    progress.label("Получаю версию загрузчика…");
+    progress.label("Getting the loader version…");
     let ver = if want.is_empty() {
         let list = get_json(http, &format!("{base}/versions/loader/{mc}"))?;
-        let arr = list.as_array().context("Некорректный ответ сервера загрузчика")?;
+        let arr = list.as_array().context("Invalid response from the loader server")?;
         let pick = arr
             .iter()
             .find(|e| {
@@ -56,16 +56,16 @@ fn fabric_like(
                     && !e["loader"]["version"].as_str().unwrap_or("").contains("beta")
             })
             .or_else(|| arr.first())
-            .ok_or_else(|| anyhow!("Для Minecraft {mc} нет такого загрузчика"))?;
+            .ok_or_else(|| anyhow!("There is no such loader for Minecraft {mc}"))?;
         pick["loader"]["version"]
             .as_str()
-            .context("Нет версии загрузчика")?
+            .context("No loader version")?
             .to_string()
     } else {
         want.to_string()
     };
     let profile = get_json(http, &format!("{base}/versions/loader/{mc}/{ver}/profile/json"))?;
-    let id = profile["id"].as_str().context("В профиле нет id")?.to_string();
+    let id = profile["id"].as_str().context("The profile has no id")?.to_string();
     let p = version_json_path(root, &id);
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
@@ -82,7 +82,7 @@ fn forge(
     java: &str,
     progress: &Progress,
 ) -> Result<String> {
-    progress.label("Получаю версию Forge…");
+    progress.label("Getting the Forge version…");
     let ver = if want.is_empty() {
         let promos = get_json(
             http,
@@ -92,7 +92,7 @@ fn forge(
         let lat = promos["promos"][format!("{mc}-latest")].as_str();
         rec.or(lat)
             .map(String::from)
-            .ok_or_else(|| anyhow!("Forge для Minecraft {mc} не найден"))?
+            .ok_or_else(|| anyhow!("Forge for Minecraft {mc} not found"))?
     } else {
         want.to_string()
     };
@@ -113,7 +113,7 @@ fn forge(
 fn neo_prefix(mc: &str) -> Result<String> {
     let rest = mc
         .strip_prefix("1.")
-        .ok_or_else(|| anyhow!("NeoForge не поддерживает {mc}"))?;
+        .ok_or_else(|| anyhow!("NeoForge does not support {mc}"))?;
     Ok(if rest.contains('.') {
         format!("{rest}.")
     } else {
@@ -135,7 +135,7 @@ fn neoforge(
     java: &str,
     progress: &Progress,
 ) -> Result<String> {
-    progress.label("Получаю версию NeoForge…");
+    progress.label("Getting the NeoForge version…");
     let ver = if want.is_empty() {
         let list = get_json(
             http,
@@ -144,7 +144,7 @@ fn neoforge(
         let prefix = neo_prefix(mc)?;
         let mut all: Vec<String> = list["versions"]
             .as_array()
-            .context("Некорректный список версий NeoForge")?
+            .context("Invalid NeoForge version list")?
             .iter()
             .filter_map(|x| x.as_str().map(String::from))
             .filter(|s| s.starts_with(&prefix))
@@ -155,7 +155,7 @@ fn neoforge(
             .find(|s| !s.contains('-'))
             .or(all.last())
             .cloned()
-            .ok_or_else(|| anyhow!("NeoForge для Minecraft {mc} не найден"))?
+            .ok_or_else(|| anyhow!("NeoForge for Minecraft {mc} not found"))?
     } else {
         want.to_string()
     };
@@ -182,7 +182,7 @@ fn installer_version_id(jar: &Path) -> Result<String> {
     v["id"]
         .as_str()
         .map(String::from)
-        .ok_or_else(|| anyhow!("В установщике нет version.json/id"))
+        .ok_or_else(|| anyhow!("The installer has no version.json/id"))
 }
 
 fn tail(s: &str, n: usize) -> String {
@@ -190,7 +190,7 @@ fn tail(s: &str, n: usize) -> String {
     c[c.len().saturating_sub(n)..].iter().collect()
 }
 
-/// Скачивает установщик Forge/NeoForge и запускает его в режиме «установить клиент».
+/// Downloads the Forge/NeoForge installer and runs it in “install client” mode.
 fn run_installer(
     http: &Client,
     root: &Path,
@@ -201,7 +201,7 @@ fn run_installer(
     progress: &Progress,
 ) -> Result<String> {
     let jar = data_dir().join("installers").join(file);
-    progress.label("Скачиваю установщик загрузчика…");
+    progress.label("Downloading the loader installer…");
     download_all(
         http,
         vec![Job {
@@ -217,7 +217,7 @@ fn run_installer(
         return Ok(id);
     }
 
-    progress.label("Устанавливаю загрузчик (до минуты)…");
+    progress.label("Installing the loader (up to a minute)…");
     fs::create_dir_all(root)?;
     let lp = root.join("launcher_profiles.json");
     if !lp.exists() {
@@ -228,7 +228,7 @@ fn run_installer(
         let mut c = Command::new(java);
         c.arg("-jar").arg(&jar).arg(flag).arg(root).current_dir(root);
         quiet(&mut c);
-        let out = c.output().with_context(|| format!("Не удалось запустить {java}"))?;
+        let out = c.output().with_context(|| format!("Could not run {java}"))?;
         last_output = format!(
             "{}\n{}",
             String::from_utf8_lossy(&out.stdout),
@@ -238,7 +238,7 @@ fn run_installer(
             return Ok(id);
         }
     }
-    bail!("Установщик загрузчика завершился ошибкой:\n{}", tail(&last_output, 1500))
+    bail!("The loader installer failed:\n{}", tail(&last_output, 1500))
 }
 
 #[cfg(test)]

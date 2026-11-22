@@ -18,7 +18,7 @@ pub struct McVersion {
     pub url: String,
 }
 
-/// Список версий Minecraft (с кэшем на диске для работы без сети).
+/// List of Minecraft versions (cached on disk so it works offline).
 pub fn fetch_versions(http: &Client) -> Result<Vec<McVersion>> {
     let cache = data_dir().join("version_manifest.json");
     let m = match get_json(http, MANIFEST) {
@@ -34,7 +34,7 @@ pub fn fetch_versions(http: &Client) -> Result<Vec<McVersion>> {
             None => return Err(e),
         },
     };
-    let list = m["versions"].as_array().context("Пустой манифест версий")?;
+    let list = m["versions"].as_array().context("Empty version manifest")?;
     Ok(list
         .iter()
         .filter_map(|v| {
@@ -60,7 +60,7 @@ pub fn ensure_vanilla_json(http: &Client, root: &Path, mc: &str) -> Result<()> {
     let v = list
         .iter()
         .find(|v| v.id == mc)
-        .ok_or_else(|| anyhow!("Версия Minecraft {mc} не найдена"))?;
+        .ok_or_else(|| anyhow!("Minecraft version {mc} not found"))?;
     let json = get_json(http, &v.url)?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
@@ -72,7 +72,7 @@ pub fn ensure_vanilla_json(http: &Client, root: &Path, mc: &str) -> Result<()> {
 pub fn ensure_client_jar(http: &Client, root: &Path, v: &Value, progress: &Progress) -> Result<()> {
     let id = v["id"].as_str().unwrap_or("");
     if let Some(c) = v["downloads"].get("client") {
-        progress.label("Скачиваю клиент Minecraft…");
+        progress.label("Downloading the Minecraft client…");
         let job = Job {
             url: c["url"].as_str().unwrap_or("").to_string(),
             dest: root.join("versions").join(id).join(format!("{id}.jar")),
@@ -84,12 +84,12 @@ pub fn ensure_client_jar(http: &Client, root: &Path, v: &Value, progress: &Progr
     Ok(())
 }
 
-// ---------- Склейка профилей (inheritsFrom) ----------
+// ---------- Merging profiles (inheritsFrom) ----------
 
-/// Читает профиль версии; если он наследуется (Fabric/Forge…), склеивает с родителем.
+/// Reads a version profile; if it inherits (Fabric/Forge…), merges it with its parent.
 pub fn resolve(root: &Path, id: &str) -> Result<Value> {
     let p = version_json_path(root, id);
-    let bytes = fs::read(&p).with_context(|| format!("Нет файла {}", p.display()))?;
+    let bytes = fs::read(&p).with_context(|| format!("Missing file {}", p.display()))?;
     let mut v: Value = serde_json::from_slice(&bytes)?;
     let parent = v
         .get("inheritsFrom")
@@ -111,7 +111,7 @@ fn merge(mut base: Value, child: Value) -> Value {
     let Value::Object(child) = child else {
         return base;
     };
-    // Библиотеки: сначала загрузчика, потом ванильные.
+    // Libraries: the loader's first, then the vanilla ones.
     let mut libs: Vec<Value> = child
         .get("libraries")
         .and_then(|l| l.as_array())
@@ -142,7 +142,7 @@ fn merge(mut base: Value, child: Value) -> Value {
     base
 }
 
-// ---------- Правила ----------
+// ---------- Rules ----------
 
 pub fn os_name() -> &'static str {
     if cfg!(windows) {
@@ -182,7 +182,7 @@ pub fn rules_allow(rules: &Value) -> bool {
     }
     let mut allowed = false;
     for r in arr {
-        // Правила с features (demo, quick play…) не включаем.
+        // Rules with features (demo, quick play…) are not enabled.
         let applies = r.get("features").is_none() && r.get("os").map_or(true, os_matches);
         if applies {
             allowed = r["action"].as_str() == Some("allow");
@@ -191,7 +191,7 @@ pub fn rules_allow(rules: &Value) -> bool {
     allowed
 }
 
-// ---------- Библиотеки ----------
+// ---------- Libraries ----------
 
 struct Libs {
     jobs: Vec<Job>,
@@ -218,7 +218,7 @@ fn maven_path(name: &str) -> Option<String> {
     Some(format!("{g}/{a}/{v}/{a}-{v}{cls}.{ext}"))
 }
 
-/// Все варианты natives-библиотек LWJGL, которые встречаются в манифестах.
+/// All variants of LWJGL natives libraries that appear in manifests.
 const ARCH_NATIVES: [&str; 8] = [
     "natives-windows",
     "natives-windows-arm64",
@@ -248,8 +248,8 @@ fn host_native_classifier() -> String {
     format!("natives-{os}{arch}")
 }
 
-/// Библиотеки natives для чужой платформы или архитектуры не нужны: их DLL перезаписали бы нужные
-/// (у x64, arm64 и x86 одинаковые имена файлов).
+/// Natives libraries for another platform or architecture aren't needed: their DLLs would overwrite the right ones
+/// (x64, arm64 and x86 use identical file names).
 fn native_matches_host(name: &str) -> bool {
     match name.rsplit(':').next() {
         Some(c) if ARCH_NATIVES.contains(&c) => c == host_native_classifier(),
@@ -298,7 +298,7 @@ fn collect_libs(root: &Path, v: &Value) -> Libs {
         }
         let name = lib["name"].as_str().unwrap_or("");
 
-        // Старый формат: natives-классификаторы.
+        // Old format: natives classifiers.
         if let Some(nat) = lib["natives"].get(os_name()).and_then(|x| x.as_str()) {
             let arch = if cfg!(target_pointer_width = "64") { "64" } else { "32" };
             let key = nat.replace("${arch}", arch);
@@ -342,7 +342,7 @@ fn collect_libs(root: &Path, v: &Value) -> Libs {
                 }
             }
         } else if let Some(rel) = maven_path(name) {
-            // Формат Fabric/Quilt: только имя и адрес maven-репозитория.
+            // Fabric/Quilt format: only the name and the maven repository URL.
             let base = lib["url"].as_str().unwrap_or("https://libraries.minecraft.net/");
             let base = if base.ends_with('/') {
                 base.to_string()
@@ -367,7 +367,7 @@ fn collect_libs(root: &Path, v: &Value) -> Libs {
 }
 
 fn extract_natives(jars: &[PathBuf], dir: &Path) -> Result<()> {
-    // Маркер «.ok2»: старые папки (с перемешанными DLL разных платформ) распаковываются заново.
+    // Marker “.ok2”: old folders (with mixed DLLs of different platforms) are extracted again.
     let marker = dir.join(".ok2");
     if marker.exists() {
         return Ok(());
@@ -408,7 +408,7 @@ fn extract_natives(jars: &[PathBuf], dir: &Path) -> Result<()> {
     Ok(())
 }
 
-// ---------- Ресурсы (звуки, языки…) ----------
+// ---------- Assets (sounds, languages…) ----------
 
 fn prepare_assets(
     http: &Client,
@@ -425,7 +425,7 @@ fn prepare_assets(
         .to_string();
     let assets = root.join("assets");
     let idx_path = assets.join("indexes").join(format!("{id}.json"));
-    progress.label("Проверяю ресурсы игры…");
+    progress.label("Checking game assets…");
     download_all(
         http,
         vec![Job {
@@ -437,7 +437,7 @@ fn prepare_assets(
         progress,
     )?;
     let idx: Value = serde_json::from_slice(&fs::read(&idx_path)?)?;
-    let objects = idx["objects"].as_object().context("Пустой индекс ресурсов")?;
+    let objects = idx["objects"].as_object().context("Empty assets index")?;
 
     let mut jobs = vec![];
     let mut seen = HashSet::new();
@@ -456,7 +456,7 @@ fn prepare_assets(
     }
     download_all(http, jobs, progress)?;
 
-    // Старые версии (до 1.7.x) ждут ресурсы по обычным путям.
+    // Old versions (before 1.7.x) expect assets at regular paths.
     let is_virtual = idx["virtual"].as_bool().unwrap_or(false);
     let map_res = idx["map_to_resources"].as_bool().unwrap_or(false);
     let mut game_assets = assets.clone();
@@ -484,7 +484,7 @@ fn prepare_assets(
     Ok((id, game_assets))
 }
 
-// ---------- Подготовка файлов и сборка аргументов ----------
+// ---------- Preparing files and building arguments ----------
 
 pub struct Prepared {
     pub classpath: Vec<PathBuf>,
@@ -503,7 +503,7 @@ pub fn prepare(
     let jar_id = v["_jar"].as_str().unwrap_or("").to_string();
     let jar = root.join("versions").join(&jar_id).join(format!("{jar_id}.jar"));
 
-    progress.label("Проверяю библиотеки…");
+    progress.label("Checking libraries…");
     let mut jobs = vec![];
     if let Some(c) = v["downloads"].get("client") {
         jobs.push(Job {
@@ -580,13 +580,13 @@ fn ps(p: &Path) -> String {
     p.to_string_lossy().to_string()
 }
 
-/// Итоговая командная строка: [JVM-аргументы…, главный класс, аргументы игры…]
+/// The final command line: [JVM arguments…, main class, game arguments…]
 pub fn build_args(v: &Value, p: &Prepared, root: &Path, o: &LaunchOpts) -> Vec<String> {
     let sep = if cfg!(windows) { ";" } else { ":" };
     let raw_jvm = collect_args(&v["arguments"]["jvm"]);
-    // Современные Forge и NeoForge (-DignoreList) подключают клиент сами через patched-jar.
-    // Ванильный «1.21.1.jar» в classpath превращается у них в лишний модуль «_1._21._1»
-    // и ломает запуск («Modules minecraft and _1._21._1 export package…»).
+    // Modern Forge and NeoForge (-DignoreList) attach the client themselves via a patched jar.
+    // The vanilla “1.21.1.jar” on the classpath turns into an extra module “_1._21._1” for them
+    // and breaks the launch (“Modules minecraft and _1._21._1 export package…”).
     let drop_vanilla_jar = raw_jvm.iter().any(|a| a.contains("-DignoreList"));
     let jar_id = v["_jar"].as_str().unwrap_or("");
     let vanilla_jar = root
@@ -782,7 +782,7 @@ mod tests {
         for other in ARCH_NATIVES.iter().filter(|c| **c != me) {
             assert!(!native_matches_host(&format!("org.lwjgl:lwjgl:3.3.3:{other}")), "{other}");
         }
-        // обычные библиотеки и особые варианты не трогаем
+        // regular libraries and special variants are left alone
         assert!(native_matches_host("com.google.guava:guava:32.1.2-jre"));
         assert!(native_matches_host("org.lwjgl:lwjgl:3.3.3:natives-macos-patch"));
     }

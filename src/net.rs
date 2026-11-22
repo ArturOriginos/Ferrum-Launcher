@@ -10,8 +10,8 @@ use std::{
     time::Duration,
 };
 
-/// Запускает работу в потоке и превращает панику в обычную ошибку, чтобы интерфейс не завис
-/// в состоянии «идёт загрузка».
+/// Runs work on a thread and turns a panic into a regular error so the UI doesn't hang
+/// in the “loading” state.
 pub fn spawn_guarded(
     on_panic: impl FnOnce(String) + Send + 'static,
     f: impl FnOnce() + Send + 'static,
@@ -22,8 +22,8 @@ pub fn spawn_guarded(
                 .downcast_ref::<&str>()
                 .map(|s| s.to_string())
                 .or_else(|| p.downcast_ref::<String>().cloned())
-                .unwrap_or_else(|| "неизвестная ошибка".to_string());
-            on_panic(format!("Внутренняя ошибка лаунчера: {msg}"));
+                .unwrap_or_else(|| "unknown error".to_string());
+            on_panic(format!("Internal launcher error: {msg}"));
         }
     });
 }
@@ -37,7 +37,7 @@ pub fn http_client() -> Client {
         .connect_timeout(Duration::from_secs(15))
         .timeout(Duration::from_secs(300))
         .build()
-        .expect("не удалось создать HTTP-клиент")
+        .expect("failed to create the HTTP client")
 }
 
 pub fn get_json(http: &Client, url: &str) -> Result<Value> {
@@ -50,7 +50,7 @@ pub fn sha1_hex(data: &[u8]) -> String {
     format!("{:x}", h.finalize())
 }
 
-// ---------- Слот для результата фонового потока ----------
+// ---------- Slot for a background thread's result ----------
 
 pub struct Slot<T>(Arc<Mutex<Option<T>>>);
 
@@ -72,7 +72,7 @@ impl<T> Clone for Slot<T> {
     }
 }
 
-// ---------- Прогресс запуска ----------
+// ---------- Launch progress ----------
 
 #[derive(Clone, Default)]
 pub struct ProgressState {
@@ -82,7 +82,7 @@ pub struct ProgressState {
     pub error: Option<String>,
     pub busy: bool,
     pub running: bool,
-    /// Когда игра запустилась (unix-секунды) и сколько длилась сессия (заполняется при выходе).
+    /// When the game started (unix seconds) and how long the session lasted (filled in on exit).
     pub play_started: Option<u64>,
     pub played_secs: u64,
 }
@@ -96,7 +96,7 @@ impl Progress {
         p.0.lock().unwrap_or_else(|e| e.into_inner()).busy = true;
         p
     }
-    /// Начало нового этапа: подпись и сброс счётчиков.
+    /// Start of a new stage: label and counter reset.
     pub fn label(&self, s: impl Into<String>) {
         let mut g = self.0.lock().unwrap_or_else(|e| e.into_inner());
         g.label = s.into();
@@ -139,7 +139,7 @@ impl Progress {
     }
 }
 
-// ---------- Загрузки ----------
+// ---------- Downloads ----------
 
 #[derive(Clone)]
 pub struct Job {
@@ -149,7 +149,7 @@ pub struct Job {
     pub size: Option<u64>,
 }
 
-/// Скачивает один файл (пропускает, если уже есть и размер совпал).
+/// Downloads one file (skips it if it already exists and the size matches).
 pub fn download(http: &Client, j: &Job) -> Result<()> {
     if let Ok(meta) = fs::metadata(&j.dest) {
         if meta.len() > 0 && j.size.map_or(true, |s| s == meta.len()) {
@@ -157,7 +157,7 @@ pub fn download(http: &Client, j: &Job) -> Result<()> {
         }
     }
     if j.url.is_empty() {
-        bail!("Нет ссылки для файла {}", j.dest.display());
+        bail!("No download link for file {}", j.dest.display());
     }
     if let Some(p) = j.dest.parent() {
         fs::create_dir_all(p)?;
@@ -176,7 +176,7 @@ pub fn download(http: &Client, j: &Job) -> Result<()> {
             Ok(bytes) => {
                 if let Some(h) = &j.sha1 {
                     if !h.is_empty() && sha1_hex(&bytes) != *h {
-                        last = Some(anyhow!("Не совпала контрольная сумма: {}", j.url));
+                        last = Some(anyhow!("Checksum mismatch: {}", j.url));
                         continue;
                     }
                 }
@@ -188,10 +188,10 @@ pub fn download(http: &Client, j: &Job) -> Result<()> {
             Err(e) => last = Some(anyhow!("{}: {}", j.url, e)),
         }
     }
-    Err(last.unwrap_or_else(|| anyhow!("Не удалось скачать {}", j.url)))
+    Err(last.unwrap_or_else(|| anyhow!("Could not download {}", j.url)))
 }
 
-/// Параллельная загрузка списка файлов с обновлением прогресса.
+/// Parallel download of a list of files with progress updates.
 pub fn download_all(http: &Client, jobs: Vec<Job>, progress: &Progress) -> Result<()> {
     if jobs.is_empty() {
         return Ok(());
@@ -228,9 +228,9 @@ mod tests {
     #[test]
     fn play_time_is_recorded_on_finish() {
         let p = Progress::new();
-        p.running("Игра запущена");
+        p.running("Game running");
         assert!(p.snapshot().play_started.is_some());
-        p.finish("Игра закрыта");
+        p.finish("Game closed");
         let s = p.snapshot();
         assert!(!s.running);
         assert!(s.played_secs < 5);
@@ -240,21 +240,21 @@ mod tests {
     fn guarded_thread_reports_panic() {
         let slot: Slot<String> = Slot::new();
         let s2 = slot.clone();
-        spawn_guarded(move |m| s2.put(m), || panic!("тест"));
+        spawn_guarded(move |m| s2.put(m), || panic!("test"));
         for _ in 0..100 {
             if let Some(m) = slot.take() {
-                assert!(m.contains("тест"), "{m}");
+                assert!(m.contains("test"), "{m}");
                 return;
             }
             std::thread::sleep(Duration::from_millis(20));
         }
-        panic!("паника не дошла до обработчика");
+        panic!("the panic did not reach the handler");
     }
 
     #[test]
     fn progress_flow() {
         let p = Progress::new();
-        p.label("этап");
+        p.label("stage");
         p.add_total(3);
         p.tick();
         let s = p.snapshot();

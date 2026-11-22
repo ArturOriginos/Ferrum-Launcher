@@ -1,4 +1,4 @@
-//! Импорт сборок: Modrinth (.mrpack) и CurseForge (.zip).
+//! Importing modpacks: Modrinth (.mrpack) and CurseForge (.zip).
 use crate::config::{instances_dir, now, Instance, Loader};
 use crate::net::{download, Job, Progress};
 use crate::util::slug;
@@ -13,7 +13,7 @@ use std::{
     path::{Component, Path, PathBuf},
 };
 
-/// Ограничение на распакованные файлы настроек (защита от «бомб»).
+/// Limit on extracted config files (protection against zip bombs).
 const MAX_OVERRIDES_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -32,7 +32,7 @@ pub struct PackInfo {
     pub files: usize,
 }
 
-// ---------- Чтение манифеста ----------
+// ---------- Reading the manifest ----------
 
 fn read_json(z: &mut zip::ZipArchive<fs::File>, name: &str) -> Option<Value> {
     let mut f = z.by_name(name).ok()?;
@@ -41,25 +41,25 @@ fn read_json(z: &mut zip::ZipArchive<fs::File>, name: &str) -> Option<Value> {
     serde_json::from_str(&s).ok()
 }
 
-/// Быстро читает архив и показывает, что внутри. Ничего не скачивает.
+/// Quickly reads the archive and shows what is inside. Downloads nothing.
 pub fn inspect(path: &Path) -> Result<PackInfo> {
-    let file = fs::File::open(path).map_err(|_| anyhow!("Файл не найден: {}", path.display()))?;
+    let file = fs::File::open(path).map_err(|_| anyhow!("File not found: {}", path.display()))?;
     let mut z = zip::ZipArchive::new(file)
-        .map_err(|_| anyhow!("Это не архив сборки. Нужен файл .mrpack или .zip"))?;
+        .map_err(|_| anyhow!("This is not a modpack archive. A .mrpack or .zip file is required"))?;
     if let Some(v) = read_json(&mut z, "modrinth.index.json") {
         return parse_mrpack(&v);
     }
     if let Some(v) = read_json(&mut z, "manifest.json") {
         return parse_cf(&v);
     }
-    bail!("В архиве нет modrinth.index.json или manifest.json. Это не сборка Modrinth или CurseForge")
+    bail!("The archive has no modrinth.index.json or manifest.json. This is not a Modrinth or CurseForge modpack")
 }
 
 fn parse_mrpack(v: &Value) -> Result<PackInfo> {
     let deps = &v["dependencies"];
     let mc = deps["minecraft"]
         .as_str()
-        .ok_or_else(|| anyhow!("В сборке не указана версия Minecraft"))?
+        .ok_or_else(|| anyhow!("The modpack does not specify a Minecraft version"))?
         .to_string();
     let (loader, lv) = if let Some(x) = deps["neoforge"].as_str() {
         (Loader::NeoForge, x)
@@ -74,7 +74,7 @@ fn parse_mrpack(v: &Value) -> Result<PackInfo> {
     };
     Ok(PackInfo {
         kind: PackKind::Mrpack,
-        name: v["name"].as_str().unwrap_or("Импортированная сборка").to_string(),
+        name: v["name"].as_str().unwrap_or("Imported modpack").to_string(),
         mc_version: mc,
         loader,
         loader_version: lv.to_string(),
@@ -85,7 +85,7 @@ fn parse_mrpack(v: &Value) -> Result<PackInfo> {
 fn parse_cf(v: &Value) -> Result<PackInfo> {
     let mc = v["minecraft"]["version"]
         .as_str()
-        .ok_or_else(|| anyhow!("В сборке не указана версия Minecraft"))?
+        .ok_or_else(|| anyhow!("The modpack does not specify a Minecraft version"))?
         .to_string();
     let loaders = v["minecraft"]["modLoaders"].as_array();
     let pick = loaders.and_then(|a| {
@@ -100,12 +100,12 @@ fn parse_cf(v: &Value) -> Result<PackInfo> {
             Some(("neoforge", ver)) => (Loader::NeoForge, ver.to_string()),
             Some(("fabric", ver)) => (Loader::Fabric, ver.to_string()),
             Some(("quilt", ver)) => (Loader::Quilt, ver.to_string()),
-            _ => bail!("Загрузчик «{id}» не поддерживается"),
+            _ => bail!("Loader '{id}' is not supported"),
         },
     };
     Ok(PackInfo {
         kind: PackKind::CurseForge,
-        name: v["name"].as_str().unwrap_or("Импортированная сборка").to_string(),
+        name: v["name"].as_str().unwrap_or("Imported modpack").to_string(),
         mc_version: mc,
         loader,
         loader_version: lv,
@@ -113,9 +113,9 @@ fn parse_cf(v: &Value) -> Result<PackInfo> {
     })
 }
 
-// ---------- Безопасность ----------
+// ---------- Safety ----------
 
-/// Относительный путь без «..», дисков и абсолютных частей.
+/// A relative path without “..”, drive letters and absolute parts.
 fn safe_rel(p: &str) -> Option<PathBuf> {
     let path = Path::new(p);
     if path.is_absolute() {
@@ -140,7 +140,7 @@ fn host_of(url: &str) -> Option<&str> {
     rest.split(|c: char| c == '/' || c == ':' || c == '?' || c == '#').next()
 }
 
-/// Для .mrpack формат разрешает скачивание только с этих хостов.
+/// For .mrpack the format only allows downloads from these hosts.
 fn mrpack_host_ok(url: &str) -> bool {
     host_of(url).map_or(false, |h| {
         ["cdn.modrinth.com", "github.com", "raw.githubusercontent.com", "gitlab.com"].contains(&h)
@@ -151,10 +151,10 @@ fn cf_host_ok(url: &str) -> bool {
     host_of(url).map_or(false, |h| h == "forgecdn.net" || h.ends_with(".forgecdn.net"))
 }
 
-// ---------- Импорт ----------
+// ---------- Import ----------
 
-/// Выполняет импорт. Возвращает готовую сборку (её ещё нужно сохранить в конфиг)
-/// и список файлов, которые не удалось скачать.
+/// Performs the import. Returns the finished instance (it still has to be saved to the config)
+/// and the list of files that could not be downloaded.
 pub fn run(
     http: &Client,
     path: &Path,
@@ -189,7 +189,7 @@ pub fn run(
             warnings,
         )),
         Err(e) => {
-            // Недоделанная сборка не остаётся на диске.
+            // An unfinished instance doesn't stay on disk.
             let _ = fs::remove_dir_all(&dir);
             Err(e)
         }
@@ -212,21 +212,21 @@ fn run_inner(
 
     let prefixes: Vec<String> = match info.kind {
         PackKind::Mrpack => {
-            let idx = read_json(&mut z, "modrinth.index.json").context("Нет modrinth.index.json")?;
+            let idx = read_json(&mut z, "modrinth.index.json").context("No modrinth.index.json")?;
             for f in idx["files"].as_array().unwrap_or(&empty) {
                 if f["env"]["client"].as_str() == Some("unsupported") {
                     continue;
                 }
                 let Some(p) = f["path"].as_str() else { continue };
                 let Some(rel) = safe_rel(p) else {
-                    warnings.push(format!("{p}: небезопасный путь, пропущен"));
+                    warnings.push(format!("{p}: unsafe path, skipped"));
                     continue;
                 };
                 let url = f["downloads"]
                     .as_array()
                     .and_then(|a| a.iter().filter_map(|u| u.as_str()).find(|u| mrpack_host_ok(u)));
                 let Some(url) = url else {
-                    warnings.push(format!("{p}: нет разрешённой ссылки для скачивания"));
+                    warnings.push(format!("{p}: no allowed download link"));
                     continue;
                 };
                 jobs.push(Job {
@@ -239,7 +239,7 @@ fn run_inner(
             vec!["overrides".to_string(), "client-overrides".to_string()]
         }
         PackKind::CurseForge => {
-            let m = read_json(&mut z, "manifest.json").context("Нет manifest.json")?;
+            let m = read_json(&mut z, "manifest.json").context("No manifest.json")?;
             let ids: Vec<u64> = m["files"]
                 .as_array()
                 .unwrap_or(&empty)
@@ -248,9 +248,9 @@ fn run_inner(
                 .collect();
             if !ids.is_empty() {
                 if cf_key.is_empty() {
-                    bail!("Для сборок CurseForge нужен API-ключ: Настройки → Моды");
+                    bail!("CurseForge modpacks need an API key: Settings → Mods");
                 }
-                progress.label("Получаю список модов из CurseForge…");
+                progress.label("Getting the mod list from CurseForge…");
                 let mut found: HashSet<u64> = HashSet::new();
                 for chunk in ids.chunks(100) {
                     let resp: Value = http
@@ -265,12 +265,12 @@ fn run_inner(
                         found.insert(fid);
                         let Some(name) = f["fileName"].as_str() else { continue };
                         let Some(safe) = safe_rel(name).filter(|p| p.components().count() == 1) else {
-                            warnings.push(format!("{name}: странное имя файла, пропущен"));
+                            warnings.push(format!("{name}: suspicious file name, skipped"));
                             continue;
                         };
                         let url = match f["downloadUrl"].as_str() {
                             Some(u) if !u.is_empty() && cf_host_ok(u) => u.to_string(),
-                            // Автор запретил выдачу ссылки через API — пробуем прямой адрес CDN.
+                            // The author disabled link delivery via the API — trying the direct CDN address.
                             _ => format!(
                                 "https://edge.forgecdn.net/files/{}/{}/{}",
                                 fid / 1000,
@@ -298,7 +298,7 @@ fn run_inner(
                 }
                 for fid in &ids {
                     if !found.contains(fid) {
-                        warnings.push(format!("Файл {fid} не найден в CurseForge"));
+                        warnings.push(format!("File {fid} not found on CurseForge"));
                     }
                 }
             }
@@ -306,15 +306,15 @@ fn run_inner(
         }
     };
 
-    progress.label("Копирую настройки сборки…");
+    progress.label("Copying the modpack settings…");
     extract_overrides(&mut z, &prefixes, dir)?;
 
-    progress.label(format!("Скачиваю моды и файлы ({})…", jobs.len()));
+    progress.label(format!("Downloading mods and files ({})…", jobs.len()));
     warnings.extend(download_soft(http, jobs, progress)?);
     Ok(warnings)
 }
 
-/// Копирует папки overrides внутрь сборки. Пути проверяются на выход за пределы папки.
+/// Copies the overrides folders into the instance. Paths are checked for escaping the folder.
 fn extract_overrides(z: &mut zip::ZipArchive<fs::File>, prefixes: &[String], dir: &Path) -> Result<()> {
     let mut total: u64 = 0;
     for i in 0..z.len() {
@@ -336,7 +336,7 @@ fn extract_overrides(z: &mut zip::ZipArchive<fs::File>, prefixes: &[String], dir
         }
         total += f.size();
         if total > MAX_OVERRIDES_BYTES {
-            bail!("Файлы настроек в сборке слишком большие (больше 2 ГБ)");
+            bail!("The modpack's config files are too large (over 2 GB)");
         }
         let dest = dir.join(&out_rel);
         if !dest.starts_with(dir) {
@@ -351,7 +351,7 @@ fn extract_overrides(z: &mut zip::ZipArchive<fs::File>, prefixes: &[String], dir
     Ok(())
 }
 
-/// Параллельная загрузка: ошибки отдельных файлов не рушат весь импорт, а попадают в отчёт.
+/// Parallel download: errors of individual files don't break the whole import but go into the report.
 fn download_soft(http: &Client, jobs: Vec<Job>, progress: &Progress) -> Result<Vec<String>> {
     if jobs.is_empty() {
         return Ok(vec![]);
@@ -369,7 +369,7 @@ fn download_soft(http: &Client, jobs: Vec<Job>, progress: &Progress) -> Result<V
                         .file_name()
                         .map(|n| n.to_string_lossy().to_string())
                         .unwrap_or_default();
-                    format!("{name}: не скачался ({e})")
+                    format!("{name}: failed to download ({e})")
                 })
             })
             .collect()

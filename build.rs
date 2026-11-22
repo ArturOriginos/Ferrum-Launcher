@@ -1,5 +1,5 @@
-// Встраивает иконку и сведения об авторе в .exe на Windows.
-// Эти сведения видны в свойствах файла и помогают антивирусам и SmartScreen опознать программу.
+// Embeds the icon and author details into the .exe on Windows.
+// These details are visible in the file properties and help antivirus software and SmartScreen recognize the program.
 fn main() {
     #[cfg(windows)]
     {
@@ -29,7 +29,7 @@ fn main() {
 </assembly>"#,
         );
         if let Err(e) = res.compile() {
-            println!("cargo:warning=не удалось встроить ресурсы Windows: {e}");
+            println!("cargo:warning=could not embed Windows resources: {e}");
         }
     }
 }

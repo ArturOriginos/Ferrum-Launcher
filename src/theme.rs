@@ -1,4 +1,4 @@
-//! Оформление: несколько палитр фона и любой акцентный цвет.
+//! Appearance: several background palettes and any accent color.
 use eframe::egui::{self, Color32, FontFamily, FontId, Rounding, Stroke, TextStyle, Vec2, Visuals};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::RwLock;
@@ -22,7 +22,7 @@ pub struct Palette {
 
 pub const PALETTES: [Palette; 10] = [
     Palette {
-        name: "Графит",
+        name: "Graphite",
         bg: c(20, 22, 24),
         sidebar: c(15, 17, 19),
         card: c(29, 33, 36),
@@ -33,7 +33,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(142, 149, 148),
     },
     Palette {
-        name: "Полночь",
+        name: "Midnight",
         bg: c(14, 17, 27),
         sidebar: c(10, 12, 20),
         card: c(22, 27, 41),
@@ -44,7 +44,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(130, 140, 165),
     },
     Palette {
-        name: "Хвоя",
+        name: "Pine",
         bg: c(15, 22, 20),
         sidebar: c(10, 16, 14),
         card: c(22, 32, 29),
@@ -55,7 +55,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(128, 150, 142),
     },
     Palette {
-        name: "Бордо",
+        name: "Burgundy",
         bg: c(24, 15, 18),
         sidebar: c(17, 10, 13),
         card: c(37, 23, 28),
@@ -66,7 +66,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(160, 132, 138),
     },
     Palette {
-        name: "Светлая",
+        name: "Light",
         bg: c(238, 236, 232),
         sidebar: c(228, 225, 219),
         card: c(250, 249, 246),
@@ -77,7 +77,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(110, 114, 118),
     },
     Palette {
-        name: "Амолед",
+        name: "AMOLED",
         bg: c(0, 0, 0),
         sidebar: c(0, 0, 0),
         card: c(14, 14, 16),
@@ -88,7 +88,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(136, 136, 144),
     },
     Palette {
-        name: "Океан",
+        name: "Ocean",
         bg: c(10, 22, 30),
         sidebar: c(6, 15, 21),
         card: c(16, 34, 46),
@@ -99,7 +99,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(120, 150, 166),
     },
     Palette {
-        name: "Сакура",
+        name: "Sakura",
         bg: c(250, 238, 242),
         sidebar: c(243, 226, 232),
         card: c(255, 250, 252),
@@ -110,7 +110,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(140, 110, 122),
     },
     Palette {
-        name: "Песок",
+        name: "Sand",
         bg: c(244, 238, 226),
         sidebar: c(234, 226, 210),
         card: c(252, 248, 240),
@@ -121,7 +121,7 @@ pub const PALETTES: [Palette; 10] = [
         muted: c(128, 116, 96),
     },
     Palette {
-        name: "Неон",
+        name: "Neon",
         bg: c(16, 12, 28),
         sidebar: c(11, 8, 20),
         card: c(26, 20, 46),
@@ -135,12 +135,12 @@ pub const PALETTES: [Palette; 10] = [
 
 static RADIUS: AtomicU8 = AtomicU8::new(1);
 
-/// 0 — острые углы, 1 — мягкие (по умолчанию), 2 — круглые.
+/// 0 — sharp corners, 1 — soft (default), 2 — round.
 pub fn set_radius(level: u32) {
     RADIUS.store(level.min(2) as u8, Ordering::Relaxed);
 }
 
-/// Масштабирует радиус скругления под выбранный стиль.
+/// Scales the corner radius to the chosen style.
 pub fn round(x: f32) -> f32 {
     match RADIUS.load(Ordering::Relaxed) {
         0 => x * 0.25,
@@ -190,22 +190,22 @@ pub const DANGER: Color32 = c(232, 93, 93);
 pub const WARN: Color32 = c(235, 180, 70);
 
 pub const ACCENTS: [(&str, Color32); 9] = [
-    ("Окалина", c(224, 102, 44)),
-    ("Патина", c(63, 181, 160)),
-    ("Латунь", c(214, 164, 65)),
-    ("Кобальт", c(77, 141, 255)),
-    ("Вереск", c(167, 123, 216)),
-    ("Роза", c(255, 94, 150)),
-    ("Лайм", c(132, 214, 60)),
-    ("Циан", c(40, 200, 230)),
-    ("Багрянец", c(220, 56, 72)),
+    ("Rust", c(224, 102, 44)),
+    ("Patina", c(63, 181, 160)),
+    ("Brass", c(214, 164, 65)),
+    ("Cobalt", c(77, 141, 255)),
+    ("Heather", c(167, 123, 216)),
+    ("Rose", c(255, 94, 150)),
+    ("Lime", c(132, 214, 60)),
+    ("Cyan", c(40, 200, 230)),
+    ("Crimson", c(220, 56, 72)),
 ];
 
 pub fn accent(idx: usize) -> Color32 {
     ACCENTS[idx.min(ACCENTS.len() - 1)].1
 }
 
-/// Цвет текста на акцентной кнопке: тёмный на светлых акцентах, белый на тёмных.
+/// Text color on an accent button: dark on light accents, white on dark ones.
 pub fn on_accent(col: Color32) -> Color32 {
     let l = 0.299 * col.r() as f32 + 0.587 * col.g() as f32 + 0.114 * col.b() as f32;
     if l > 150.0 {
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn light_palettes_are_detected() {
-        // индексы светлых палитр: Светлая, Сакура, Песок
+        // indices of the light palettes: Light, Sakura, Sand
         for i in 0..PALETTES.len() {
             set_palette(i);
             assert_eq!(is_light(), matches!(i, 4 | 8 | 9), "{}", PALETTES[i].name);

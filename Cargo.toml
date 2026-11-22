@@ -1,9 +1,9 @@
 [package]
 name = "ferrum-launcher"
-version = "0.7.0"
+version = "0.9.1"
 authors = ["ArturOriginos"]
 edition = "2021"
-description = "Лаунчер Minecraft на Rust: сборки, ОЗУ, моды из Modrinth и CurseForge, временные аккаунты"
+description = "Minecraft launcher written in Rust: instances, RAM, mods from Modrinth and CurseForge, temporary accounts"
 license = "MIT"
 repository = "https://github.com/ArturOriginos/ferrum-launcher"
 readme = "README.md"

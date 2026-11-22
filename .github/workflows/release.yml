@@ -1,15 +1,36 @@
 name: Release
+
 on:
   push:
     tags: ["v*"]
 
+# By default jobs can only read the repository; the jobs that need more ask for it themselves.
 permissions:
-  contents: write
-  id-token: write
-  attestations: write
+  contents: read
 
 jobs:
+  # The tag must match the version in Cargo.toml, otherwise the release would ship a wrongly named build.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Tag must match the version in Cargo.toml
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          ver="$(grep -m1 '^version' Cargo.toml | sed -E 's/^version *= *"([^"]+)".*/\1/')"
+          echo "tag=$tag, Cargo.toml=$ver"
+          if [ "$tag" != "$ver" ]; then
+            echo "::error::Tag v$tag does not match the version $ver in Cargo.toml"
+            exit 1
+          fi
+
   build:
+    needs: check
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
     strategy:
       fail-fast: false
       matrix:
@@ -24,11 +45,13 @@ jobs:
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
       - name: Linux dependencies
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libx11-dev libgl1-mesa-dev
@@ -37,10 +60,12 @@ jobs:
       - name: Package (Unix)
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          name=ferrum-launcher-${{ github.ref_name }}-${{ matrix.target }}
+          name="ferrum-launcher-${GITHUB_REF_NAME}-${TARGET}"
           mkdir "$name"
-          cp target/${{ matrix.target }}/release/ferrum-launcher "$name/"
+          cp "target/${TARGET}/release/ferrum-launcher" "$name/"
           cp README.md LICENSE "$name/"
           tar czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
@@ -49,23 +74,43 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
-          $name = "ferrum-launcher-${{ github.ref_name }}-${{ matrix.target }}"
+          $name = "ferrum-launcher-$($env:GITHUB_REF_NAME)-$($env:TARGET)"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item "target/${{ matrix.target }}/release/ferrum-launcher.exe" $name
+          Copy-Item "target/$($env:TARGET)/release/ferrum-launcher.exe" $name
           Copy-Item README.md, LICENSE $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
           $hash = (Get-FileHash "$name.zip" -Algorithm SHA256).Hash.ToLower()
           "$hash  $name.zip" | Out-File -FilePath "$name.zip.sha256" -Encoding ascii
           "ASSET=$name.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           "ASSET_SUM=$name.zip.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-      - name: Подтверждение происхождения сборки
-        uses: actions/attest-build-provenance@v2
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: ${{ env.ASSET }}
-      - uses: softprops/action-gh-release@v2
+      - uses: actions/upload-artifact@v7
         with:
-          files: |
+          name: dist-${{ matrix.target }}
+          path: |
             ${{ env.ASSET }}
             ${{ env.ASSET_SUM }}
+          if-no-files-found: error
+
+  # One job publishes the release for all builds. Four parallel jobs creating the same release can race
+  # and leave duplicate or incomplete releases.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v3
+        with:
+          files: dist/*
           generate_release_notes: true

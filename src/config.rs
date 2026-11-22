@@ -10,13 +10,13 @@ use std::{
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Версия формата config.json. Растёт, когда формат меняется несовместимо.
+/// Version of the config.json format. Increases when the format changes incompatibly.
 pub const CONFIG_VERSION: u32 = 2;
 
-/// Неизвестные поля из конфига другой версии лаунчера: сохраняем их, чтобы не потерять при записи.
+/// Unknown fields from a config written by another launcher version: we keep them so they aren't lost on save.
 pub type Extra = serde_json::Map<String, serde_json::Value>;
 
-/// Время в виде «2026-11-19_14-05-09» (UTC) для имён файлов и логов.
+/// Time formatted like “2026-11-19_14-05-09” (UTC) for file names and logs.
 pub fn stamp(secs: u64) -> String {
     let days = (secs / 86400) as i64;
     let rem = secs % 86400;
@@ -41,7 +41,7 @@ pub fn now() -> u64 {
         .unwrap_or(0)
 }
 
-// ---------- Пути ----------
+// ---------- Paths ----------
 
 pub fn data_dir() -> PathBuf {
     let d = directories::ProjectDirs::from("dev", "ferrum", "FerrumLauncher")
@@ -50,11 +50,11 @@ pub fn data_dir() -> PathBuf {
     let _ = fs::create_dir_all(&d);
     d
 }
-/// Общая папка Minecraft: versions / libraries / assets.
+/// Shared Minecraft folder: versions / libraries / assets.
 pub fn game_root() -> PathBuf {
     data_dir().join("minecraft")
 }
-/// Свободный id для новой сборки: не совпадает ни с другими сборками, ни с папкой на диске.
+/// Free id for a new instance: doesn't clash with other instances or with a folder on disk.
 pub fn unique_instance_id(name: &str, existing: &[Instance]) -> String {
     let base = format!("{}-{}", crate::util::slug(name), now());
     let mut id = base.clone();
@@ -75,11 +75,11 @@ pub fn runtime_dir() -> PathBuf {
 pub fn logs_dir() -> PathBuf {
     data_dir().join("logs")
 }
-/// Лог каждого запуска игры.
+/// Log of every game launch.
 pub fn launch_logs_dir() -> PathBuf {
     logs_dir().join("launches")
 }
-/// Отдельная папка на каждый краш: лог запуска, latest.log, crash-reports.
+/// A separate folder for every crash: launch log, latest.log, crash-reports.
 pub fn crash_logs_dir() -> PathBuf {
     logs_dir().join("crashes")
 }
@@ -87,7 +87,7 @@ fn config_path() -> PathBuf {
     data_dir().join("config.json")
 }
 
-// ---------- Загрузчики и источники модов ----------
+// ---------- Loaders and mod sources ----------
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Loader {
@@ -115,7 +115,7 @@ impl Loader {
             Loader::NeoForge => "NeoForge",
         }
     }
-    /// Категории Modrinth (Quilt умеет грузить и моды Fabric).
+    /// Modrinth categories (Quilt can also load Fabric mods).
     pub fn modrinth_names(self) -> Vec<&'static str> {
         match self {
             Loader::Vanilla => vec![],
@@ -125,7 +125,7 @@ impl Loader {
             Loader::NeoForge => vec!["neoforge"],
         }
     }
-    /// modLoaderType в API CurseForge.
+    /// modLoaderType in the CurseForge API.
     pub fn curseforge(self) -> Option<u32> {
         match self {
             Loader::Vanilla => None,
@@ -151,7 +151,7 @@ impl ModSource {
     }
 }
 
-// ---------- Настройки ----------
+// ---------- Settings ----------
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -167,22 +167,22 @@ pub struct Settings {
     pub curseforge_key: String,
     pub mod_source: ModSource,
     pub accent: usize,
-    /// Свой акцентный цвет (RGB); работает, если включён `use_custom_accent`.
+    /// Custom accent color (RGB); applies when `use_custom_accent` is on.
     pub use_custom_accent: bool,
     pub custom_accent: [u8; 3],
-    /// Номер палитры фона.
+    /// Background palette index.
     pub palette: usize,
-    /// Масштаб интерфейса: 0.9 … 1.5
+    /// Interface scale: 0.9 … 1.5
     pub ui_scale: f32,
-    /// Скругление углов: 0 острые, 1 мягкие, 2 круглые. И свечение акцента сверху страницы.
+    /// Corner style: 0 sharp, 1 soft, 2 round. And the accent glow at the top of the page.
     pub radius: u32,
     pub glow: bool,
-    /// Свой фон интерфейса и затемнение поверх него, %.
+    /// Custom interface background and the dimming over it, %.
     pub has_bg: bool,
     pub bg_dim: u32,
-    /// Своя иконка лаунчера.
+    /// Custom launcher icon.
     pub has_icon: bool,
-    /// Версия принятого пользовательского соглашения (пусто — не принято).
+    /// Version of the accepted terms of use (empty = not accepted).
     pub accepted_terms: String,
     #[serde(flatten)]
     pub extra: Extra,
@@ -217,7 +217,7 @@ impl Default for Settings {
     }
 }
 
-// ---------- Сборки ----------
+// ---------- Instances ----------
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Instance {
@@ -225,21 +225,21 @@ pub struct Instance {
     pub name: String,
     pub mc_version: String,
     pub loader: Loader,
-    /// Пусто = последняя подходящая версия загрузчика.
+    /// Empty = latest suitable loader version.
     #[serde(default)]
     pub loader_version: String,
-    /// 0 = брать из общих настроек.
+    /// 0 = use the global settings.
     #[serde(default)]
     pub ram_mb: u32,
     #[serde(default)]
     pub jvm_args: String,
     #[serde(default)]
     pub last_played: u64,
-    /// Автоустановка Sodium (Fabric/Quilt/NeoForge) или OptiFine (Forge).
-    /// У сборок, созданных старыми версиями, поля нет: для них выключено, ничего не ставится само.
+    /// Auto-install Sodium (Fabric/Quilt/NeoForge) or OptiFine (Forge).
+    /// Instances created by older versions don't have this field: it is off for them and nothing gets installed on its own.
     #[serde(default)]
     pub auto_perf: bool,
-    /// Сколько секунд наиграно в этой сборке и сколько раз её запускали.
+    /// How many seconds were played in this instance and how many times it was launched.
     #[serde(default)]
     pub playtime_secs: u64,
     #[serde(default)]
@@ -264,15 +264,18 @@ impl Instance {
     }
 }
 
-// ---------- Аккаунты ----------
+// ---------- Accounts ----------
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Account {
     pub name: String,
     pub uuid: String,
-    /// Some(время) — временный аккаунт, удалится после этого момента.
+    /// Some(time) — a temporary account that is removed after this moment.
     #[serde(default)]
     pub expires_at: Option<u64>,
+    /// Id of a preset avatar (see `avatar.rs`). None = the face of the account's skin, or the first letter of the nickname.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -283,12 +286,13 @@ impl Account {
             name: name.to_string(),
             uuid: offline_uuid(name),
             expires_at: ttl_secs.map(|t| now() + t),
+            avatar: None,
             extra: Extra::new(),
         }
     }
 }
 
-/// UUID офлайн-игрока — так же считает сам Minecraft (MD5 от "OfflinePlayer:ник").
+/// UUID of an offline player — computed the same way Minecraft does (MD5 of “OfflinePlayer:name”).
 pub fn offline_uuid(name: &str) -> String {
     let mut h = Md5::new();
     h.update(format!("OfflinePlayer:{name}").as_bytes());
@@ -318,7 +322,7 @@ pub fn random_nick() -> String {
     format!("{a}{n}{num}")
 }
 
-// ---------- Общий конфиг ----------
+// ---------- Global config ----------
 
 #[derive(Serialize, Deserialize, Clone, Default)]
 #[serde(default)]
@@ -334,8 +338,8 @@ pub struct Config {
 }
 
 impl Config {
-    /// Читает конфиг. Если формат не подошёл (файл от другой версии), делает копию
-    /// `config.backup-<время>.json` и вытаскивает всё, что получится, ничего не стирая молча.
+    /// Reads the config. If the format doesn't fit (a file from another version), makes a copy
+    /// `config.backup-<time>.json` and recovers whatever it can, never silently erasing anything.
     pub fn load() -> Self {
         let path = config_path();
         let Ok(text) = fs::read_to_string(&path) else {
@@ -353,16 +357,16 @@ impl Config {
         cfg
     }
 
-    /// Приводит конфиг старых версий к текущему формату.
+    /// Brings a config from older versions to the current format.
     fn migrate(&mut self) {
-        // Версия 0–1: поле auto_perf появилось позже, для старых сборок оно уже выключено (serde default).
-        // Если файл записала более новая версия, номер не понижаем.
+        // Version 0–1: the auto_perf field appeared later; it is already off for old instances (serde default).
+        // If the file was written by a newer version, we don't lower the number.
         if self.config_version < CONFIG_VERSION {
             self.config_version = CONFIG_VERSION;
         }
     }
 
-    /// Запись через временный файл: при сбое посреди записи старый конфиг остаётся целым.
+    /// Writes via a temporary file: if the write is interrupted, the old config stays intact.
     pub fn save(&self) {
         if let Ok(s) = serde_json::to_string_pretty(self) {
             let path = config_path();
@@ -373,7 +377,7 @@ impl Config {
         }
     }
 
-    /// Удаляет временные аккаунты, у которых вышел срок.
+    /// Removes temporary accounts whose time has expired.
     pub fn purge_expired(&mut self) {
         let n = now();
         self.accounts.retain(|a| a.expires_at.map_or(true, |e| e > n));
@@ -427,7 +431,7 @@ mod tests {
 
     #[test]
     fn old_config_without_new_fields_loads() {
-        // формат версии 0.1.0: нет auto_perf, accounts без expires_at, нет полей оформления
+        // format of version 0.1.0: no auto_perf, accounts without expires_at, no appearance fields
         let old = r#"{
             "settings": {"ram_mb": 6144, "auto_java": true},
             "accounts": [{"name": "Steve", "uuid": "u1"}],
@@ -437,7 +441,7 @@ mod tests {
         let cfg: Config = serde_json::from_str(old).unwrap();
         assert_eq!(cfg.settings.ram_mb, 6144);
         assert_eq!(cfg.accounts[0].expires_at, None);
-        assert!(!cfg.instances[0].auto_perf, "старые сборки не должны получать автоустановку");
+        assert!(!cfg.instances[0].auto_perf, "old instances must not get auto-install");
         assert_eq!(cfg.settings.palette, 0);
     }
 
@@ -500,7 +504,7 @@ mod tests {
     }
 }
 
-/// Разбор «по частям»: битая сборка или аккаунт не рушат весь конфиг.
+/// Piecewise parsing: a broken instance or account doesn't break the whole config.
 fn parse_lenient(text: &str) -> Option<Config> {
     let v: serde_json::Value = serde_json::from_str(text).ok()?;
     let obj = v.as_object()?;
@@ -532,7 +536,7 @@ fn parse_lenient(text: &str) -> Option<Config> {
     Some(cfg)
 }
 
-/// Загрузчик из будущей версии лаунчера, которого мы не знаем, считаем Vanilla.
+/// A loader from a future launcher version that we don't know is treated as Vanilla.
 fn fix_unknown_loader(v: &mut serde_json::Value) {
     let known = ["Vanilla", "Fabric", "Quilt", "Forge", "NeoForge"];
     let unknown = v

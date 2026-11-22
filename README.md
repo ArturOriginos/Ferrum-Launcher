@@ -1,85 +1,107 @@
 # Ferrum Launcher
 
-Лаунчер Minecraft на Rust. Один исполняемый файл, без Electron и без установщика.
+A Minecraft launcher written in Rust. A single executable, no Electron and no installer.
 
-- **Сборки**: любое название, отдельная папка, своя память и JVM-аргументы
-- **Загрузчики**: Vanilla, Fabric, Quilt, Forge, NeoForge
-- **Экспорт сборок** в `.mrpack` и **скины** для офлайн-аккаунтов
-- **Импорт сборок**: Modrinth (`.mrpack`) и CurseForge (`.zip`), перетащите файл в окно
-- **Моды**: поиск и установка из CurseForge или Modrinth, переключение одним кликом
-- **Аккаунты**: офлайн и временные (создаются в лаунчере, живут 24 часа)
-- **Java**: нужная версия подбирается или скачивается автоматически
-- **Оптимизация**: Sodium (Fabric, Quilt, NeoForge) и OptiFine (Forge) ставятся автоматически
-- **Логи**: лог каждого запуска и отдельная папка на каждый краш игры
-- **Время игры** по каждой сборке и счётчик запусков
-- **Свои картинки**: любой фон и своя иконка (перетащите файл в окно)
-- **Оформление**: свой цвет интерфейса (любой цвет палитрой), 9 готовых акцентов, 10 палитр фона (в том числе светлые), стиль углов, масштаб 90–150%
+- **Instances**: any name, a separate folder, own memory and JVM arguments
+- **Loaders**: Vanilla, Fabric, Quilt, Forge, NeoForge
+- **Modpack export** to `.mrpack` and **skins** for offline accounts
+- **Modpack import**: Modrinth (`.mrpack`) and CurseForge (`.zip`), just drag the file into the window
+- **Mods**: search and install from CurseForge or Modrinth, enable or disable with one click
+- **Accounts**: offline and temporary (created in the launcher, valid for 24 hours), with a choice of avatar: 11 character heads or the face of your skin
+- **Java**: the required version is picked or downloaded automatically
+- **Optimization**: Sodium (Fabric, Quilt, NeoForge) and OptiFine (Forge) are installed automatically
+- **Logs**: a log for every launch and a separate folder for every game crash
+- **Play time** per instance and a launch counter
+- **Custom images**: any background and your own icon (drag the file into the window)
+- **Appearance**: your own interface color (any color from a palette), 9 ready-made accents, 10 background palettes (including light ones), corner style, scale 90–150%
+
+## Building from source
+
+You need [Rust](https://rustup.rs) (stable).
+
+```bash
+git clone https://github.com/ArturOriginos/ferrum-launcher
+cd ferrum-launcher
+cargo run --release
+```
+
+Run the logic tests with `cargo test`.
+
+On Linux you may need these packages: `libxkbcommon-dev libwayland-dev libx11-dev libgl1-mesa-dev`.
 
 ## CurseForge
 
-CurseForge отдаёт моды только по API-ключу. Получите бесплатный ключ на
-<https://console.curseforge.com> и вставьте в **Настройки → Моды**.
-Каждый пользователь вводит свой ключ сам: вшивать ключ в публичные сборки нельзя по правилам CurseForge.
-Modrinth работает без ключа.
+CurseForge serves mods only with an API key. Get a free key at
+<https://console.curseforge.com> and paste it into **Settings → Mods**.
+Every user enters their own key: embedding a key into public builds is forbidden by the CurseForge rules.
+Modrinth works without a key.
 
-## Экспорт сборок
+## Exporting modpacks
 
-Выберите сборку на странице **Сборки** и нажмите **Экспорт**. Файл `.mrpack` появится в папке `exports` в папке данных лаунчера. Моды ищутся на Modrinth по контрольной сумме и попадают в файл ссылками. Моды, которых там нет, можно положить внутрь архива (проверьте их лицензию). Миры, логи и скриншоты не экспортируются.
+Select an instance on the **Instances** page and press **Export**. The `.mrpack` file appears in the `exports` folder inside the launcher's data folder. Mods are looked up on Modrinth by checksum and are added to the file as links. Mods that are not there can be put inside the archive (check their license). Worlds, logs and screenshots are not exported.
 
-## Скины
+## Skins
 
-В **Аккаунты → Скин** укажите PNG 64×64 или 64×32 (до 200 КБ) или перетащите файл в окно. В игре скин показывает мод [CustomSkinLoader](https://modrinth.com/mod/customskinloader), лаунчер ставит его сам для сборок с Fabric, Quilt, Forge и NeoForge. Скин виден только в вашей игре, другие игроки его не увидят.
+In **Accounts → Skin** choose a 64×64 or 64×32 PNG (up to 200 KB) or drag the file into the window. In the game the skin is shown by the [CustomSkinLoader](https://modrinth.com/mod/customskinloader) mod, which the launcher installs by itself for instances with Fabric, Quilt, Forge and NeoForge. The skin is visible only in your own game, other players will not see it.
 
-## Импорт сборок
+## Avatars
 
-На странице **Сборки** нажмите **Импорт** или перетащите файл в окно лаунчера. Поддерживаются:
+In **Accounts → Avatar** pick a head for the account: Axolotl, Cat, Wolf, Creeper, Zombie, Skeleton, Enderman, Pig, Villager, Slime or Blaze. **Auto** shows the face of the account's skin, or the first letter of the nickname if there is no skin. The avatar is shown in the launcher only (side panel and accounts list) and does not change how you look in the game, that is what skins are for.
 
-- `.mrpack` (Modrinth), без ключа;
-- `.zip` (CurseForge), нужен ваш API-ключ в **Настройки → Моды**.
+![Avatar preview](assets/avatars-preview.png)
 
-Лаунчер покажет название, версию игры и загрузчик, затем скачает моды и скопирует настройки. Файлы, которые не удалось получить, перечисляются в отчёте. У CurseForge автор мода может запретить раздачу через API: такие моды придётся скачать вручную в папку `mods`.
+The pictures are simplified 8×8 pixel art drawn by the launcher itself (`src/avatar.rs`), not files taken from the game.
 
-## Свои картинки
+## Importing modpacks
 
-В **Настройки → Свои изображения** можно поставить свой фон и иконку. Файл можно перетащить прямо в окно лаунчера.
+On the **Instances** page press **Import** or drag a file into the launcher window. Supported formats:
 
-| | Иконка | Фон |
+- `.mrpack` (Modrinth), no key needed;
+- `.zip` (CurseForge), your API key is required in **Settings → Mods**.
+
+The launcher shows the name, game version and loader, then downloads the mods and copies the settings. Files that could not be fetched are listed in a report. On CurseForge a mod author can forbid distribution through the API: such mods have to be downloaded manually into the `mods` folder.
+
+## Custom images
+
+In **Settings → Custom images** you can set your own background and icon. You can drag the file right into the launcher window.
+
+| | Icon | Background |
 |---|---|---|
-| Формат | PNG, JPG, WebP | PNG, JPG, WebP |
-| Размер файла | до 5 МБ | до 10 МБ |
-| Разрешение | от 128×128 до 2048×2048 | от 800×450 до 7680×4320 |
-| Пропорции | строго квадрат 1:1 | любые, лучше 16:9 |
+| Format | PNG, JPG, WebP | PNG, JPG, WebP |
+| File size | up to 5 MB | up to 10 MB |
+| Resolution | from 128×128 to 2048×2048 | from 800×450 to 7680×4320 |
+| Aspect ratio | strictly square 1:1 | any, 16:9 works best |
 
-Иконка самого `.exe` задаётся при сборке (`assets/icon.ico`) и во время работы не меняется.
+The icon of the `.exe` itself is set at build time (`assets/icon.ico`) and does not change while the launcher is running.
 
-## Логи
+## Logs
 
-- `logs/launches` — лог каждого запуска (команда, версия Java, вывод игры)
-- `logs/crashes/<дата>_<сборка>` — при краше: лог запуска, `latest.log`, `crash-reports`, `hs_err`
+- `logs/launches` — a log of every launch (command, Java version, game output)
+- `logs/crashes/<date>_<instance>` — on a crash: the launch log, `latest.log`, `crash-reports`, `hs_err`
 
-Открыть папку можно в **Настройки → Данные** или в окне ошибки.
+You can open the folder in **Settings → Data** or in the error window.
 
-## Совместимость версий
+## Version compatibility
 
-Лаунчер читает конфиги и сборки всех прежних версий. Если формат файла `config.json` не подошёл, рядом создаётся копия `config.backup-<дата>.json`, и из него берётся всё, что можно прочитать. Неизвестные поля из конфигов других версий при записи сохраняются (с версии 0.6.1). Номер формата записан в поле `config_version`.
+The launcher reads the configs and instances of all earlier versions. If the format of `config.json` does not fit, a copy `config.backup-<date>.json` is created next to it and everything that can be read is taken from it. Unknown fields from configs of other versions are preserved on save (since version 0.6.1). The format number is stored in the `config_version` field.
 
-## Антивирус
+## Antivirus
 
-Новые программы без цифровой подписи часто вызывают подозрения у антивирусов, это ложные срабатывания. Что сделано и что можно сделать:
+New programs without a digital signature often raise suspicion in antivirus software; these are false positives. What has been done and what you can do:
 
-- В `.exe` встроены имя автора, описание, авторские права и значок.
-- К каждому релизу прилагается файл `.sha256`. Проверка: `certutil -hashfile ferrum-launcher-...zip SHA256` (Windows) или `shasum -a 256 -c файл.sha256`.
-- Файлы собираются на GitHub Actions из открытого кода. Происхождение подтверждается командой `gh attestation verify <файл> --owner ArturOriginos`.
-- Если антивирус ругается, отправьте файл как ложное срабатывание: [Microsoft Defender](https://www.microsoft.com/wdsi/filesubmission), а также в форму вашего антивируса. Загрузка на [VirusTotal](https://www.virustotal.com) покажет, сколько движков спорят.
-- Полностью устраняет проблему только цифровая подпись кода (платный сертификат). Для открытых проектов есть бесплатные варианты, например SignPath Foundation.
+- The author's name, description, copyright and icon are embedded into the `.exe`.
+- Every release comes with a `.sha256` file. To verify: `certutil -hashfile ferrum-launcher-...zip SHA256` (Windows) or `shasum -a 256 -c file.sha256`.
+- The files are built on GitHub Actions from open source code. The origin is confirmed with `gh attestation verify <file> --owner ArturOriginos`.
+- If your antivirus complains, submit the file as a false positive: [Microsoft Defender](https://www.microsoft.com/wdsi/filesubmission), as well as the form of your antivirus. Uploading to [VirusTotal](https://www.virustotal.com) shows how many engines disagree.
+- Only code signing (a paid certificate) removes the problem completely. For open source projects there are free options, for example SignPath Foundation.
 
-## Заметки
+## Notes
 
-- OptiFine не имеет API. Лаунчер берёт ссылку со страницы optifine.net, и если сайт изменится, автоустановка не сработает. Тогда скачайте OptiFine вручную в папку mods.
-- Sodium для NeoForge есть только для новых версий игры (1.21+).
+- OptiFine has no API. The launcher takes the link from the optifine.net page, and if the site changes, the automatic installation will not work. In that case download OptiFine manually into the mods folder.
+- Sodium for NeoForge exists only for new game versions (1.21+).
 
-- Офлайн-аккаунты не пускают на серверы с лицензионной проверкой.
-- Данные лежат в папке, путь к которой показан в **Настройки → Данные**.
-- Minecraft — торговая марка Mojang AB. Проект не связан с Mojang и Microsoft.
+- Offline accounts are not allowed on servers with license verification.
+- The data lives in a folder whose path is shown in **Settings → Data**.
+- Minecraft is a trademark of Mojang AB. This project is not affiliated with Mojang or Microsoft.
 
-Лицензия: MIT.
+License: MIT.

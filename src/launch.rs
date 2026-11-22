@@ -11,16 +11,16 @@ use std::{
     time::SystemTime,
 };
 
-/// Дописывает строку с временем в лог запуска.
+/// Appends a timestamped line to the launch log.
 fn note(path: &Path, msg: &str) {
     if let Ok(mut f) = fs::OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(f, "[{}] {}", stamp(now()), msg);
     }
 }
 
-/// Полный цикл: подготовить файлы, запустить игру, дождаться выхода.
-/// Каждый запуск пишет свой лог в `logs/launches/`, а при краше всё нужное
-/// копируется в отдельную папку в `logs/crashes/`.
+/// Full cycle: prepare the files, launch the game, wait for it to exit.
+/// Every launch writes its own log to `logs/launches/`, and on a crash everything needed
+/// is copied into a separate folder in `logs/crashes/`.
 pub fn run(
     http: &Client,
     st: &Settings,
@@ -30,14 +30,14 @@ pub fn run(
 ) -> Result<()> {
     let dir = launch_logs_dir();
     fs::create_dir_all(&dir)?;
-    // Старые логи не копятся вечно: храним последние запуски и краши.
+    // Old logs don't pile up forever: we keep the latest launches and crashes.
     prune(&dir, 40);
     prune(&crash_logs_dir(), 20);
     let log_path = dir.join(format!("{}_{}.log", stamp(now()), inst.id));
     note(
         &log_path,
         &format!(
-            "Ferrum Launcher v{VERSION}. Сборка «{}», Minecraft {}, {}",
+            "Ferrum Launcher v{VERSION}. Instance '{}', Minecraft {}, {}",
             inst.name,
             inst.mc_version,
             inst.loader.label()
@@ -45,8 +45,8 @@ pub fn run(
     );
     let r = run_inner(http, st, inst, acc, progress, &log_path);
     if let Err(e) = &r {
-        note(&log_path, &format!("ОШИБКА: {e:#}"));
-        return Err(anyhow!("{e:#}\n\nЛог запуска:\n{}", log_path.display()));
+        note(&log_path, &format!("ERROR: {e:#}"));
+        return Err(anyhow!("{e:#}\n\nLaunch log:\n{}", log_path.display()));
     }
     r
 }
@@ -63,7 +63,7 @@ fn run_inner(
     let game_dir = inst.dir();
     fs::create_dir_all(game_dir.join("mods"))?;
 
-    progress.label("Проверяю Minecraft…");
+    progress.label("Checking Minecraft…");
     minecraft::ensure_vanilla_json(http, &root, &inst.mc_version)?;
     let vanilla = minecraft::resolve(&root, &inst.mc_version)?;
     let major = vanilla["javaVersion"]["majorVersion"].as_u64().unwrap_or(8) as u32;
@@ -72,7 +72,7 @@ fn run_inner(
     note(
         log,
         &format!(
-            "Java: {} (версия {})",
+            "Java: {} (version {})",
             java_bin,
             java::java_major(&java_bin).map_or("?".to_string(), |m| m.to_string())
         ),
@@ -80,28 +80,28 @@ fn run_inner(
     minecraft::ensure_client_jar(http, &root, &vanilla, progress)?;
 
     let id = loaders::resolve_id(http, &root, inst, &java_bin, progress)?;
-    note(log, &format!("Версия профиля: {id}"));
+    note(log, &format!("Profile version: {id}"));
 
-    // Автоустановка Sodium / OptiFine — один раз на сборку, ошибки не критичны.
+    // Auto-install of Sodium / OptiFine — once per instance, errors are not critical.
     if inst.auto_perf && inst.loader != Loader::Vanilla {
         let marker = game_dir.join(".ferrum_perf");
         if !marker.exists() {
-            progress.label("Ставлю оптимизацию (Sodium / OptiFine)…");
+            progress.label("Installing performance mods (Sodium / OptiFine)…");
             match perf::install_for(http, inst) {
                 Ok(m) => {
                     note(log, &m);
                     let _ = fs::write(&marker, "ok");
                 }
-                Err(e) => note(log, &format!("Автоустановка оптимизации не удалась: {e:#}")),
+                Err(e) => note(log, &format!("Performance mods auto-install failed: {e:#}")),
             }
         }
     }
 
-    // Скин аккаунта (через CustomSkinLoader), ошибки не критичны.
+    // The account's skin (via CustomSkinLoader), errors are not critical.
     match skin::prepare_instance(http, inst, acc) {
         Ok(Some(m)) => note(log, &m),
         Ok(None) => {}
-        Err(e) => note(log, &format!("Скин не применён: {e:#}")),
+        Err(e) => note(log, &format!("Skin not applied: {e:#}")),
     }
 
     let resolved = minecraft::resolve(&root, &id)?;
@@ -118,11 +118,11 @@ fn run_inner(
         uuid: acc.uuid.clone(),
     };
     let args = minecraft::build_args(&resolved, &prep, &root, &opts);
-    note(log, &format!("Память: {} МБ", opts.ram_mb));
-    note(log, &format!("Команда: {} {}", java_bin, args.join(" ")));
-    note(log, "Запускаю игру. Ниже — вывод игры.");
+    note(log, &format!("Memory: {} MB", opts.ram_mb));
+    note(log, &format!("Command: {} {}", java_bin, args.join(" ")));
+    note(log, "Launching the game. The game output follows.");
 
-    progress.label("Запускаю игру…");
+    progress.label("Launching the game…");
     let out = fs::OpenOptions::new().create(true).append(true).open(log)?;
     let err = out.try_clone()?;
     let mut cmd = Command::new(&java_bin);
@@ -135,34 +135,34 @@ fn run_inner(
     let started = SystemTime::now();
     let mut child = cmd
         .spawn()
-        .with_context(|| format!("Не удалось запустить {java_bin}"))?;
+        .with_context(|| format!("Could not run {java_bin}"))?;
 
-    progress.running("Игра запущена");
+    progress.running("Game running");
     let status = child.wait()?;
     let code = status.code().map_or("?".to_string(), |c| c.to_string());
-    note(log, &format!("Игра завершилась, код выхода: {code}"));
+    note(log, &format!("The game exited, exit code: {code}"));
 
     if status.success() {
-        progress.finish("Игра закрыта");
+        progress.finish("Game closed");
     } else {
         let dest = collect_crash(&game_dir, log, started, inst);
-        note(log, &format!("Логи краша сохранены: {}", dest.display()));
+        note(log, &format!("Crash logs saved: {}", dest.display()));
         let hint = diagnose(&read_tail(log, 400_000));
         let mut msg = format!(
-            "Игра завершилась с ошибкой (код {code}).\n\nЛоги краша сохранены в папку:\n{}",
+            "The game exited with an error (code {code}).\n\nCrash logs saved to the folder:\n{}",
             dest.display()
         );
         if let Some(h) = hint {
-            note(log, &format!("Возможная причина: {h}"));
-            msg.push_str(&format!("\n\nВозможная причина: {h}"));
+            note(log, &format!("Possible cause: {h}"));
+            msg.push_str(&format!("\n\nPossible cause: {h}"));
         }
         progress.fail(msg);
     }
     Ok(())
 }
 
-/// Оставляет в папке только `keep` самых новых записей. Имена начинаются с даты,
-/// поэтому порядок по имени совпадает с порядком по времени.
+/// Keeps only the `keep` newest entries in the folder. Names start with the date,
+/// so the order by name matches the order by time.
 fn prune(dir: &Path, keep: usize) {
     let Ok(rd) = fs::read_dir(dir) else {
         return;
@@ -179,8 +179,8 @@ fn prune(dir: &Path, keep: usize) {
     }
 }
 
-/// На Windows командная строка ограничена ~32 тыс. символов. Если аргументов слишком много,
-/// передаём их через файл @argfile (поддерживается в Java 9+).
+/// On Windows the command line is limited to ~32 thousand characters. If there are too many arguments,
+/// we pass them via an @argfile (supported in Java 9+).
 fn launch_args(args: &[String], java_major: u32, game_dir: &Path, log: &Path) -> Result<Vec<String>> {
     let total: usize = args.iter().map(|a| a.len() + 3).sum();
     if cfg!(windows) && java_major >= 9 && total > 28_000 {
@@ -192,7 +192,7 @@ fn launch_args(args: &[String], java_major: u32, game_dir: &Path, log: &Path) ->
             text.push_str("\"\n");
         }
         fs::write(&file, text)?;
-        note(log, "Командная строка длинная: аргументы переданы через файл @argfile");
+        note(log, "The command line is long: arguments passed via an @argfile");
         return Ok(vec![format!("@{}", file.display())]);
     }
     Ok(args.to_vec())
@@ -204,23 +204,23 @@ fn read_tail(path: &Path, max: usize) -> String {
     String::from_utf8_lossy(&bytes[start..]).to_string()
 }
 
-/// По тексту лога подсказывает вероятную причину краша.
+/// Suggests a likely crash cause based on the log text.
 pub fn diagnose(text: &str) -> Option<&'static str> {
     const RULES: [(&str, &str); 9] = [
-        ("OutOfMemoryError", "Игре не хватило памяти. Увеличьте объём ОЗУ в настройках сборки или в общих настройках."),
-        ("Could not reserve enough space", "Система не смогла выделить столько памяти. Уменьшите объём ОЗУ в настройках."),
-        ("UnsupportedClassVersionError", "Версия Java не подходит для игры или модов. Включите «Подбирать и скачивать Java автоматически» в настройках."),
-        ("UnsatisfiedLinkError", "Не загрузилась системная библиотека (natives). Удалите папку natives в папке данных лаунчера и запустите снова."),
-        ("DuplicateModsFoundException", "В папке mods лежат две копии одного мода. Оставьте только одну."),
-        ("ResolutionException", "Конфликт модулей Java. Чаще всего в папке mods две копии одного мода или несовместимые версии: оставьте по одному файлу каждого мода."),
-        ("Missing or unsupported mandatory dependencies", "Не хватает модов-зависимостей или они не той версии. Список указан в latest.log."),
-        ("Mod resolution failed", "Моды не подходят друг к другу или к версии игры. Подробности в latest.log."),
-        ("Mixin apply failed", "Моды конфликтуют между собой (Mixin). Уберите последний добавленный мод."),
+        ("OutOfMemoryError", "The game ran out of memory. Increase the RAM in the instance settings or in the global settings."),
+        ("Could not reserve enough space", "The system could not allocate that much memory. Reduce the RAM in the settings."),
+        ("UnsupportedClassVersionError", "The Java version doesn't fit the game or the mods. Turn on \"Pick and download Java automatically\" in the settings."),
+        ("UnsatisfiedLinkError", "A system library (natives) failed to load. Delete the natives folder in the launcher's data folder and launch again."),
+        ("DuplicateModsFoundException", "The mods folder contains two copies of the same mod. Keep only one."),
+        ("ResolutionException", "Java module conflict. Most often the mods folder has two copies of one mod or incompatible versions: keep one file per mod."),
+        ("Missing or unsupported mandatory dependencies", "Dependency mods are missing or have the wrong version. The list is in latest.log."),
+        ("Mod resolution failed", "The mods don't fit each other or the game version. See latest.log for details."),
+        ("Mixin apply failed", "The mods conflict with each other (Mixin). Remove the most recently added mod."),
     ];
     RULES.iter().find(|(p, _)| text.contains(p)).map(|(_, h)| *h)
 }
 
-/// Собирает всё про краш в одну папку: лог запуска, latest.log, crash-reports, hs_err.
+/// Gathers everything about a crash into one folder: launch log, latest.log, crash-reports, hs_err.
 fn collect_crash(game_dir: &Path, launch_log: &Path, started: SystemTime, inst: &Instance) -> PathBuf {
     let dest = crash_logs_dir().join(format!("{}_{}", stamp(now()), inst.id));
     let _ = fs::create_dir_all(&dest);
@@ -256,12 +256,12 @@ mod tests {
 
     #[test]
     fn diagnoses_common_crashes() {
-        assert!(diagnose("java.lang.OutOfMemoryError: Java heap space").unwrap().contains("памяти"));
+        assert!(diagnose("java.lang.OutOfMemoryError: Java heap space").unwrap().contains("memory"));
         assert!(diagnose("java.lang.module.ResolutionException: Modules a and b export package")
             .unwrap()
-            .contains("модулей"));
+            .contains("module"));
         assert!(diagnose("UnsupportedClassVersionError: class file version 65").unwrap().contains("Java"));
-        assert_eq!(diagnose("всё хорошо"), None);
+        assert_eq!(diagnose("all good"), None);
     }
 
     #[test]
