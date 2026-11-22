@@ -220,37 +220,37 @@ pub fn apply(ctx: &egui::Context, accent: Color32) {
     let mut v = if is_light() { Visuals::light() } else { Visuals::dark() };
     v.panel_fill = p.bg;
     v.window_fill = p.card;
-    v.window_stroke = Stroke::new(1.0, p.border);
+    v.window_stroke = Stroke::new(1.0_f32, p.border);
     v.window_rounding = Rounding::same(round(16.0));
     v.extreme_bg_color = if is_light() { Color32::WHITE } else { p.sidebar };
     v.faint_bg_color = p.card;
     v.hyperlink_color = accent;
     v.selection.bg_fill = accent.linear_multiply(0.45);
-    v.selection.stroke = Stroke::new(1.0, accent);
+    v.selection.stroke = Stroke::new(1.0_f32, accent);
 
     let r = Rounding::same(round(10.0));
     v.widgets.noninteractive.bg_fill = p.card;
     v.widgets.noninteractive.weak_bg_fill = p.card;
-    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0, p.border);
-    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, p.text);
+    v.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, p.border);
+    v.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, p.text);
     v.widgets.noninteractive.rounding = r;
 
     v.widgets.inactive.bg_fill = p.surface;
     v.widgets.inactive.weak_bg_fill = p.surface;
-    v.widgets.inactive.bg_stroke = Stroke::new(1.0, p.border);
-    v.widgets.inactive.fg_stroke = Stroke::new(1.0, p.text);
+    v.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, p.border);
+    v.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, p.text);
     v.widgets.inactive.rounding = r;
 
     v.widgets.hovered.bg_fill = p.hover;
     v.widgets.hovered.weak_bg_fill = p.hover;
-    v.widgets.hovered.bg_stroke = Stroke::new(1.0, accent);
-    v.widgets.hovered.fg_stroke = Stroke::new(1.0, p.text);
+    v.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, accent);
+    v.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, p.text);
     v.widgets.hovered.rounding = r;
 
     v.widgets.active.bg_fill = accent.linear_multiply(0.6);
     v.widgets.active.weak_bg_fill = accent.linear_multiply(0.6);
-    v.widgets.active.bg_stroke = Stroke::new(1.0, accent);
-    v.widgets.active.fg_stroke = Stroke::new(1.0, p.text);
+    v.widgets.active.bg_stroke = Stroke::new(1.0_f32, accent);
+    v.widgets.active.fg_stroke = Stroke::new(1.0_f32, p.text);
     v.widgets.active.rounding = r;
 
     v.widgets.open.bg_fill = p.surface;
@@ -282,10 +282,10 @@ mod tests {
 
     #[test]
     fn light_palettes_are_detected() {
-        // indices of the light palettes: Light, Sakura, Sand
+        // indices of the light palettes: Light (4), Sakura (7), Sand (8)
         for i in 0..PALETTES.len() {
             set_palette(i);
-            assert_eq!(is_light(), matches!(i, 4 | 8 | 9), "{}", PALETTES[i].name);
+            assert_eq!(is_light(), matches!(i, 4 | 7 | 8), "{}", PALETTES[i].name);
         }
         set_palette(0);
     }

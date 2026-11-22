@@ -83,6 +83,10 @@ pub fn launch_logs_dir() -> PathBuf {
 pub fn crash_logs_dir() -> PathBuf {
     logs_dir().join("crashes")
 }
+/// Saved Microsoft sign-ins: one small private file per account (never inside config.json).
+pub fn auth_dir() -> PathBuf {
+    data_dir().join("auth")
+}
 fn config_path() -> PathBuf {
     data_dir().join("config.json")
 }
@@ -165,6 +169,8 @@ pub struct Settings {
     pub fullscreen: bool,
     pub hide_launcher: bool,
     pub curseforge_key: String,
+    /// Azure application (client) ID used for Microsoft sign-in (empty = the one built into this build, if any).
+    pub ms_client_id: String,
     pub mod_source: ModSource,
     pub accent: usize,
     /// Custom accent color (RGB); applies when `use_custom_accent` is on.
@@ -200,6 +206,7 @@ impl Default for Settings {
             fullscreen: false,
             hide_launcher: true,
             curseforge_key: String::new(),
+            ms_client_id: String::new(),
             mod_source: ModSource::Modrinth,
             accent: 0,
             use_custom_accent: false,
@@ -276,6 +283,9 @@ pub struct Account {
     /// Id of a preset avatar (see `avatar.rs`). None = the face of the account's skin, or the first letter of the nickname.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub avatar: Option<String>,
+    /// A licensed account signed in with Microsoft (the tokens live in `auth/<uuid>.json`, see `msauth.rs`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub microsoft: bool,
     #[serde(flatten)]
     pub extra: Extra,
 }
@@ -287,9 +297,26 @@ impl Account {
             uuid: offline_uuid(name),
             expires_at: ttl_secs.map(|t| now() + t),
             avatar: None,
+            microsoft: false,
             extra: Extra::new(),
         }
     }
+
+    /// A licensed account: name and uuid come from the Minecraft profile.
+    pub fn microsoft(name: &str, uuid: &str) -> Self {
+        Account {
+            name: name.to_string(),
+            uuid: uuid.to_string(),
+            expires_at: None,
+            avatar: None,
+            microsoft: true,
+            extra: Extra::new(),
+        }
+    }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 /// UUID of an offline player — computed the same way Minecraft does (MD5 of “OfflinePlayer:name”).

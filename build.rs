@@ -1,6 +1,8 @@
 // Embeds the icon and author details into the .exe on Windows.
 // These details are visible in the file properties and help antivirus software and SmartScreen recognize the program.
 fn main() {
+    // the Microsoft application ID can be built in (see README → Microsoft sign-in)
+    println!("cargo:rerun-if-env-changed=FERRUM_MS_CLIENT_ID");
     #[cfg(windows)]
     {
         let mut res = winresource::WindowsResource::new();

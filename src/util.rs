@@ -12,6 +12,16 @@ pub fn open_path(p: &Path) {
     let _ = Command::new("xdg-open").arg(p).spawn();
 }
 
+/// Opens a web page in the default browser (callers must only pass trusted https links).
+pub fn open_url(url: &str) {
+    #[cfg(target_os = "windows")]
+    let _ = Command::new("explorer").arg(url).spawn();
+    #[cfg(target_os = "macos")]
+    let _ = Command::new("open").arg(url).spawn();
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let _ = Command::new("xdg-open").arg(url).spawn();
+}
+
 /// Total system RAM, in MB.
 pub fn total_ram_mb() -> u32 {
     let mut s = sysinfo::System::new();

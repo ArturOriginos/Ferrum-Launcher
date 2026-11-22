@@ -6,11 +6,12 @@ use crate::import;
 use crate::skin;
 use crate::launch;
 use crate::minecraft::{self, McVersion};
+use crate::msauth;
 use crate::mods::{self, InstalledMod, ModHit};
 use crate::net::{self, Progress, ProgressState, Slot};
 use crate::terms;
 use crate::theme;
-use crate::util::{fmt_num, fmt_playtime, open_path, total_ram_mb};
+use crate::util::{fmt_num, fmt_playtime, open_path, open_url, total_ram_mb};
 use eframe::egui::{
     self, vec2, Align, Align2, Color32, FontId, Frame, Layout, Margin, RichText, Sense, Stroke,
     TextEdit,
@@ -130,6 +131,8 @@ pub struct App {
     faces: std::collections::HashMap<String, egui::TextureHandle>,
     avatar_tex: std::collections::HashMap<&'static str, egui::TextureHandle>,
     avatar_edit: Option<String>,
+    ms_login: Option<msauth::LoginHandle>,
+    ms_msg: Option<(bool, String)>,
     skin_edit: Option<String>,
     skin_path_input: String,
     skin_msg: Option<(bool, String)>,
@@ -217,6 +220,8 @@ impl App {
                 })
                 .collect(),
             avatar_edit: None,
+            ms_login: None,
+            ms_msg: None,
             skin_edit: None,
             skin_path_input: String::new(),
             skin_msg: None,
@@ -286,6 +291,13 @@ impl App {
                     self.custom_msg = Some((false, "Create and select an account first".to_string()));
                     return;
                 };
+                if self.cfg.accounts.iter().any(|a| a.uuid == uuid && a.microsoft) {
+                    self.custom_msg = Some((
+                        false,
+                        "The skin of a Microsoft account is changed on minecraft.net".to_string(),
+                    ));
+                    return;
+                }
                 self.skin_path_input = path.to_string();
                 self.apply_skin(ctx, &uuid, false);
                 self.skin_edit = Some(uuid);
@@ -727,6 +739,29 @@ impl App {
     // ---------- background results ----------
 
     fn poll(&mut self) {
+        if let Some(h) = self.ms_login.clone() {
+            match h.state() {
+                msauth::LoginState::Done { name, uuid } => {
+                    match self.cfg.accounts.iter().position(|a| a.uuid == uuid) {
+                        Some(i) => {
+                            self.cfg.accounts[i].name = name.clone();
+                            self.cfg.accounts[i].microsoft = true;
+                        }
+                        None => self.cfg.accounts.push(Account::microsoft(&name, &uuid)),
+                    }
+                    self.cfg.selected_account = Some(uuid);
+                    self.ms_msg = Some((true, format!("Signed in as {name}")));
+                    self.ms_login = None;
+                    self.dirty = true;
+                }
+                msauth::LoginState::Failed(m) => {
+                    self.ms_msg = Some((false, m));
+                    self.ms_login = None;
+                }
+                msauth::LoginState::Cancelled => self.ms_login = None,
+                _ => {}
+            }
+        }
         if let Some(r) = self.versions_slot.take() {
             self.versions_loading = false;
             match r {
@@ -981,7 +1016,7 @@ impl App {
         let face = self.selected_account().and_then(|a| self.face_of(a));
         let acc = self
             .selected_account()
-            .map(|a| (a.name.clone(), a.expires_at.is_some()));
+            .map(|a| (a.name.clone(), account_kind(a)));
         egui::SidePanel::left("side")
             .exact_width(230.0)
             .resizable(false)
@@ -1009,12 +1044,12 @@ impl App {
                 }
                 ui.with_layout(Layout::bottom_up(Align::Min), |ui| {
                     ui.label(RichText::new(format!("v{VERSION}")).small().color(theme::muted()));
-                    if let Some((name, temp)) = &acc {
+                    if let Some((name, kind)) = &acc {
                         let r = Frame::none()
                             .fill(theme::card())
                             .rounding(theme::round(14.0))
                             .inner_margin(Margin::same(10.0))
-                            .stroke(Stroke::new(1.0, theme::border()))
+                            .stroke(Stroke::new(1.0_f32, theme::border()))
                             .show(ui, |ui| {
                                 ui.set_width(ui.available_width());
                                 ui.horizontal(|ui| {
@@ -1022,7 +1057,7 @@ impl App {
                                     ui.vertical(|ui| {
                                         ui.label(RichText::new(name).strong());
                                         ui.label(
-                                            RichText::new(if *temp { "temporary account" } else { "offline account" })
+                                            RichText::new(kind.as_str())
                                                 .small()
                                                 .color(theme::muted()),
                                         );
@@ -1688,10 +1723,135 @@ impl App {
 
     // ---------- “Accounts” page ----------
 
+    fn start_ms_login(&mut self) {
+        let cid = msauth::client_id(&self.cfg.settings.ms_client_id);
+        if !msauth::valid_client_id(&cid) {
+            self.ms_msg = Some((false, "Enter a valid application (client) ID first.".to_string()));
+            return;
+        }
+        self.ms_msg = None;
+        self.ms_login = Some(msauth::start_login(self.http.clone(), cid));
+    }
+
+    /// The “Microsoft account” block: sign in with a licensed Minecraft account (device code flow).
+    fn ms_block(&mut self, ui: &mut egui::Ui, accent: Color32) {
+        let cid = msauth::client_id(&self.cfg.settings.ms_client_id);
+        let cid_ok = msauth::valid_client_id(&cid);
+        let builtin = self.cfg.settings.ms_client_id.trim().is_empty() && cid_ok;
+        let state = self.ms_login.as_ref().map(|h| h.state());
+        let (mut start, mut cancel) = (false, false);
+        card_frame(false, accent).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new("Microsoft account").size(17.0).strong().color(theme::text()));
+            ui.label(muted(
+                "Sign in with your licensed Minecraft account to play on online-mode servers. You sign in on Microsoft's own page: the launcher never sees your password.",
+            ));
+            ui.add_space(6.0);
+            match &state {
+                None => {
+                    egui::CollapsingHeader::new("Application (client) ID")
+                        .default_open(!cid_ok)
+                        .show(ui, |ui| {
+                            ui.label(muted(
+                                "One-time setup: the ID of an Azure application that Mojang has approved. See README → Microsoft sign-in.",
+                            ));
+                            let changed = ui
+                                .add(
+                                    TextEdit::singleline(&mut self.cfg.settings.ms_client_id)
+                                        .hint_text("00000000-0000-0000-0000-000000000000")
+                                        .desired_width(380.0),
+                                )
+                                .changed();
+                            if changed {
+                                self.dirty = true;
+                            }
+                            if builtin {
+                                ui.label(muted("Using the application ID built into this build."));
+                            } else if !cid.is_empty() && !cid_ok {
+                                ui.label(
+                                    RichText::new("This does not look like an application ID (a GUID like 00000000-0000-0000-0000-000000000000).")
+                                        .color(theme::WARN),
+                                );
+                            }
+                        });
+                    ui.add_space(4.0);
+                    let r = ui
+                        .add_enabled_ui(cid_ok, |ui| accent_btn(ui, "Sign in with Microsoft", accent))
+                        .inner;
+                    if r.clicked() {
+                        start = true;
+                    }
+                    if let Some((ok, m)) = &self.ms_msg {
+                        ui.label(RichText::new(m).color(if *ok { accent } else { theme::DANGER }));
+                    }
+                }
+                Some(msauth::LoginState::Waiting { user_code, url, expires_at }) => {
+                    ui.label("1. Open this page in your browser:");
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(url).color(accent));
+                        if ui.button("Open page").clicked() {
+                            open_url(url);
+                        }
+                    });
+                    ui.add_space(4.0);
+                    ui.label("2. Enter this code and finish the sign-in:");
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(user_code)
+                                .size(30.0)
+                                .strong()
+                                .monospace()
+                                .color(theme::text()),
+                        );
+                        if ui.button("Copy code").clicked() {
+                            let code = user_code.clone();
+                            ui.ctx().output_mut(|o| o.copied_text = code);
+                        }
+                    });
+                    let left = expires_at.saturating_sub(now());
+                    ui.label(muted(format!(
+                        "Waiting for you to finish… the code expires in {}:{:02}",
+                        left / 60,
+                        left % 60
+                    )));
+                }
+                Some(msauth::LoginState::Finishing) => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Signing in to Minecraft…");
+                    });
+                }
+                Some(_) => {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label("Contacting Microsoft…");
+                    });
+                }
+            }
+            if state.is_some() {
+                ui.add_space(4.0);
+                if ui.button("Cancel").clicked() {
+                    cancel = true;
+                }
+            }
+        });
+        if start {
+            self.start_ms_login();
+        }
+        if cancel {
+            if let Some(h) = &self.ms_login {
+                h.cancel();
+            }
+        }
+    }
+
     fn page_accounts(&mut self, ui: &mut egui::Ui) {
         let accent = self.accent();
         let ctx = ui.ctx().clone();
         ui.heading("Accounts");
+        self.ms_block(ui, accent);
+        ui.add_space(12.0);
+        ui.label(RichText::new("Offline account").size(17.0).strong().color(theme::text()));
         ui.label(muted(
             "Offline accounts work in singleplayer and on servers with online-mode=false. Licensed servers don't let them in.",
         ));
@@ -1742,7 +1902,7 @@ impl App {
                                 let s = e.saturating_sub(now());
                                 format!("temporary, {}h {}m left", s / 3600, (s % 3600) / 60)
                             }
-                            None => "offline account".to_string(),
+                            None => account_kind(a),
                         };
                         ui.label(muted(kind));
                     });
@@ -1750,7 +1910,8 @@ impl App {
                         if ui.button("Delete").clicked() {
                             del = Some(a.uuid.clone());
                         }
-                        if ui.button("Skin").clicked() {
+                        // the skin of a Microsoft account is changed on minecraft.net, not here
+                        if !a.microsoft && ui.button("Skin").clicked() {
                             toggle_skin = Some(a.uuid.clone());
                         }
                         if ui.button("Avatar").clicked() {
@@ -1790,7 +1951,7 @@ impl App {
                     });
                 });
             }
-            if self.skin_edit.as_deref() == Some(a.uuid.as_str()) {
+            if !a.microsoft && self.skin_edit.as_deref() == Some(a.uuid.as_str()) {
                 card_frame(false, accent).show(ui, |ui| {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new("Account skin").size(16.0).color(theme::text()));
@@ -1839,6 +2000,7 @@ impl App {
         }
         if let Some(u) = del {
             skin::remove(&u);
+            msauth::forget(&u);
             self.faces.remove(&u);
             self.cfg.accounts.retain(|a| a.uuid != u);
             if self.cfg.selected_account.as_deref() == Some(u.as_str()) {
@@ -2130,7 +2292,7 @@ impl eframe::App for App {
             ));
             let r = ctx.screen_rect();
             painter.rect_filled(r, 0.0, Color32::from_black_alpha(170));
-            painter.rect_stroke(r.shrink(14.0), 18.0, Stroke::new(3.0, self.accent()));
+            painter.rect_stroke(r.shrink(14.0), 18.0, Stroke::new(3.0_f32, self.accent()));
             painter.text(
                 r.center(),
                 Align2::CENTER_CENTER,
@@ -2184,6 +2346,7 @@ impl eframe::App for App {
             || self.mod_busy
             || self.import_progress.is_some()
             || self.export_progress.is_some()
+            || self.ms_login.is_some()
             || self.versions_loading;
         if busy {
             ctx.request_repaint_after(Duration::from_millis(120));
@@ -2206,6 +2369,17 @@ fn accent_btn(ui: &mut egui::Ui, text: &str, accent: Color32) -> egui::Response 
     )
 }
 
+/// What kind of account this is, for the labels.
+fn account_kind(a: &Account) -> String {
+    if a.microsoft {
+        "Microsoft account".to_string()
+    } else if a.expires_at.is_some() {
+        "temporary account".to_string()
+    } else {
+        "offline account".to_string()
+    }
+}
+
 fn muted(text: impl Into<String>) -> RichText {
     RichText::new(text.into()).color(theme::muted())
 }
@@ -2216,7 +2390,7 @@ fn card_frame(selected: bool, accent: Color32) -> Frame {
         .rounding(theme::round(14.0))
         .inner_margin(Margin::same(16.0))
         .stroke(Stroke::new(
-            if selected { 2.0 } else { 1.0 },
+            if selected { 2.0_f32 } else { 1.0_f32 },
             if selected { accent } else { theme::border() },
         ))
 }
@@ -2226,7 +2400,7 @@ fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         .fill(theme::card())
         .rounding(theme::round(14.0))
         .inner_margin(Margin::same(18.0))
-        .stroke(Stroke::new(1.0, theme::border()))
+        .stroke(Stroke::new(1.0_f32, theme::border()))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new(title).size(18.0).strong());
@@ -2260,7 +2434,7 @@ fn avatar_tile(
     painter.rect_stroke(
         rect,
         theme::round(10.0),
-        Stroke::new(if chosen { 2.0 } else { 1.0 }, if chosen { accent } else { theme::border() }),
+        Stroke::new(if chosen { 2.0_f32 } else { 1.0_f32 }, if chosen { accent } else { theme::border() }),
     );
     let pic = egui::Rect::from_min_size(rect.min + vec2(10.0, 8.0), vec2(56.0, 56.0));
     paint_avatar(painter, pic, name, accent, face);
@@ -2289,7 +2463,7 @@ fn paint_avatar(
             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
             Color32::WHITE,
         );
-        painter.rect_stroke(rect, 0.0, Stroke::new(1.0, theme::border()));
+        painter.rect_stroke(rect, 0.0, Stroke::new(1.0_f32, theme::border()));
         return;
     }
     painter.circle_filled(rect.center(), size / 2.0, color);
@@ -2327,7 +2501,7 @@ enum Icon {
 }
 
 fn paint_icon(p: &egui::Painter, icon: Icon, c: egui::Pos2, col: Color32) {
-    let st = Stroke::new(1.8, col);
+    let st = Stroke::new(1.8_f32, col);
     match icon {
         Icon::Grid => {
             for (dx, dy) in [(-6.0, -6.0), (1.0, -6.0), (-6.0, 1.0), (1.0, 1.0)] {
@@ -2512,9 +2686,9 @@ fn add_card(ui: &mut egui::Ui, accent: Color32) -> egui::Response {
     {
         let p = ui.painter();
         p.rect_filled(rect, theme::round(16.0), accent.linear_multiply(0.05 + 0.07 * t));
-        p.rect_stroke(rect, theme::round(16.0), Stroke::new(1.5, theme::border().lerp_to_gamma(accent, t)));
+        p.rect_stroke(rect, theme::round(16.0), Stroke::new(1.5_f32, theme::border().lerp_to_gamma(accent, t)));
         let c = rect.center() - vec2(0.0, 10.0);
-        let st = Stroke::new(2.5, accent);
+        let st = Stroke::new(2.5_f32, accent);
         p.line_segment([c + vec2(-10.0, 0.0), c + vec2(10.0, 0.0)], st);
         p.line_segment([c + vec2(0.0, -10.0), c + vec2(0.0, 10.0)], st);
         p.text(
@@ -2577,7 +2751,7 @@ fn swatch(ui: &mut egui::Ui, col: Color32, selected: bool, name: &str) -> egui::
         let p = ui.painter();
         p.circle_filled(rect.center(), 13.0, col);
         if selected {
-            p.circle_stroke(rect.center(), 16.5, Stroke::new(2.0, theme::text()));
+            p.circle_stroke(rect.center(), 16.5, Stroke::new(2.0_f32, theme::text()));
         }
     }
     if resp.hovered() {
@@ -2602,7 +2776,7 @@ fn palette_card(ui: &mut egui::Ui, pal: &theme::Palette, selected: bool, accent:
         p.rect_stroke(
             prev,
             12.0,
-            Stroke::new(if selected { 2.5 } else { 1.0 }, if selected { accent } else { theme::border() }),
+            Stroke::new(if selected { 2.5_f32 } else { 1.0_f32 }, if selected { accent } else { theme::border() }),
         );
         p.text(
             egui::pos2(rect.center().x, rect.bottom() - 10.0),

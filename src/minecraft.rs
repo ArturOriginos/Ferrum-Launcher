@@ -540,6 +540,8 @@ pub struct LaunchOpts {
     pub fullscreen: bool,
     pub name: String,
     pub uuid: String,
+    /// The Minecraft access token of a Microsoft account; None = offline account.
+    pub access_token: Option<String>,
 }
 
 fn collect_args(v: &Value) -> Vec<String> {
@@ -604,11 +606,16 @@ pub fn build_args(v: &Value, p: &Prepared, root: &Path, o: &LaunchOpts) -> Vec<S
     let mut vars: HashMap<&str, String> = HashMap::new();
     vars.insert("auth_player_name", o.name.clone());
     vars.insert("auth_uuid", o.uuid.clone());
-    vars.insert("auth_access_token", "0".into());
-    vars.insert("auth_session", "0".into());
+    // an online (Microsoft) account passes its token; an offline one passes placeholders
+    let token = o.access_token.clone().unwrap_or_else(|| "0".to_string());
+    vars.insert("auth_access_token", token.clone());
+    vars.insert("auth_session", token);
     vars.insert("auth_xuid", "0".into());
     vars.insert("clientid", "0".into());
-    vars.insert("user_type", "legacy".into());
+    vars.insert(
+        "user_type",
+        if o.access_token.is_some() { "msa" } else { "legacy" }.into(),
+    );
     vars.insert("user_properties", "{}".into());
     vars.insert("version_name", v["id"].as_str().unwrap_or("").to_string());
     vars.insert(
@@ -769,6 +776,7 @@ mod tests {
             fullscreen: false,
             name: "Steve".into(),
             uuid: "u".into(),
+            access_token: None,
         };
         let a = build_args(&v, &p, &root, &o);
         let i = a.iter().position(|x| x == "-cp").unwrap();
@@ -826,6 +834,7 @@ mod tests {
             fullscreen: false,
             name: "Steve".into(),
             uuid: "u".into(),
+            access_token: None,
         };
         let a = build_args(&v, &p, Path::new("root"), &o);
         assert_eq!(a[0], "-Xmx2048M");
@@ -834,5 +843,42 @@ mod tests {
         assert!(a[..i].contains(&"-cp".to_string()));
         let rest: Vec<&str> = a[i + 1..].iter().map(|s| s.as_str()).collect();
         assert_eq!(rest, vec!["--username", "Steve", "--gameDir", "gd"]);
+    }
+
+    #[test]
+    fn online_account_passes_its_token() {
+        let v = json!({
+            "id": "1.8.9", "type": "release",
+            "mainClass": "net.minecraft.client.main.Main",
+            "minecraftArguments": "--accessToken ${auth_access_token} --userType ${user_type}"
+        });
+        let p = Prepared {
+            classpath: vec![PathBuf::from("a.jar")],
+            natives_dir: PathBuf::from("nat"),
+            assets_index: "1.8".into(),
+            game_assets: PathBuf::from("as"),
+        };
+        let mut o = LaunchOpts {
+            game_dir: PathBuf::from("gd"),
+            ram_mb: 2048,
+            extra_jvm: String::new(),
+            width: 0,
+            height: 0,
+            fullscreen: false,
+            name: "Steve".into(),
+            uuid: "u".into(),
+            access_token: Some("SECRET".into()),
+        };
+        let a = build_args(&v, &p, Path::new("root"), &o);
+        let i = a.iter().position(|x| x == "--accessToken").unwrap();
+        assert_eq!(a[i + 1], "SECRET");
+        let i = a.iter().position(|x| x == "--userType").unwrap();
+        assert_eq!(a[i + 1], "msa");
+        o.access_token = None;
+        let a = build_args(&v, &p, Path::new("root"), &o);
+        let i = a.iter().position(|x| x == "--accessToken").unwrap();
+        assert_eq!(a[i + 1], "0");
+        let i = a.iter().position(|x| x == "--userType").unwrap();
+        assert_eq!(a[i + 1], "legacy");
     }
 }

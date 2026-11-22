@@ -7,7 +7,7 @@ A Minecraft launcher written in Rust. A single executable, no Electron and no in
 - **Modpack export** to `.mrpack` and **skins** for offline accounts
 - **Modpack import**: Modrinth (`.mrpack`) and CurseForge (`.zip`), just drag the file into the window
 - **Mods**: search and install from CurseForge or Modrinth, enable or disable with one click
-- **Accounts**: offline and temporary (created in the launcher, valid for 24 hours), with a choice of avatar: 11 character heads or the face of your skin
+- **Accounts**: licensed accounts through Microsoft sign-in, offline and temporary accounts (created in the launcher, valid for 24 hours), with a choice of avatar: 11 character heads or the face of your skin
 - **Java**: the required version is picked or downloaded automatically
 - **Optimization**: Sodium (Fabric, Quilt, NeoForge) and OptiFine (Forge) are installed automatically
 - **Logs**: a log for every launch and a separate folder for every game crash
@@ -43,6 +43,22 @@ Select an instance on the **Instances** page and press **Export**. The `.mrpack`
 ## Skins
 
 In **Accounts → Skin** choose a 64×64 or 64×32 PNG (up to 200 KB) or drag the file into the window. In the game the skin is shown by the [CustomSkinLoader](https://modrinth.com/mod/customskinloader) mod, which the launcher installs by itself for instances with Fabric, Quilt, Forge and NeoForge. The skin is visible only in your own game, other players will not see it.
+
+## Microsoft sign-in
+
+In **Accounts → Microsoft account** press **Sign in with Microsoft**. The launcher shows a short code and a Microsoft page: open the page, enter the code, sign in and confirm. The launcher never sees your password. After that the account works on online-mode servers, and its name and UUID come from your Minecraft profile. The sign-in is renewed silently, so you do not have to repeat it before each launch.
+
+**One-time setup: an application ID.** Microsoft sign-in needs an Azure application, and Minecraft services accept only applications that Mojang has approved. Without the approval the last step fails with `Invalid app registration`. This cannot be avoided in the launcher, so you need your own application ID:
+
+1. In the [Azure portal](https://portal.azure.com) open **App registrations → New registration**, choose **Personal Microsoft accounts only** and leave the redirect URI empty.
+2. Open **Authentication** and turn **Allow public client flows** on.
+3. Copy the **Application (client) ID**.
+4. Ask Mojang to approve it with the form at <https://aka.ms/mce-reviewappid> (it needs the ID). Until it is approved, sign-in will not work.
+5. Paste the ID into **Accounts → Microsoft account → Application (client) ID**.
+
+If you build the launcher yourself, you can build the ID in with the environment variable `FERRUM_MS_CLIENT_ID` (in GitHub Actions: a repository variable with this name). The ID is public, there is no client secret.
+
+What is stored and where: the sign-in tokens are kept in a separate file per account in the `auth` folder of the data folder (readable only by you on Linux and macOS), never in `config.json` and never in the logs. They are not encrypted, so protect your computer account. Deleting an account in the launcher deletes its file. The tokens are sent only to Microsoft, Xbox and Mojang servers. The skin of a Microsoft account is changed on minecraft.net, not in the launcher.
 
 ## Avatars
 

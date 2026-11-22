@@ -4,6 +4,22 @@ Versions follow [SemVer](https://semver.org/): `0.MINOR.PATCH`.
 A new feature bumps MINOR (0.1.0 → 0.2.0), a fix bumps PATCH (0.1.0 → 0.1.1).
 Every version has a matching git tag `vX.Y.Z` and a release on GitHub.
 
+## [0.10.1] — build fix
+- Fixed the failing `cargo test` in CI: the test `light_palettes_are_detected` used the wrong palette numbers (Sakura is number 7, Sand is 8, Neon is dark). Only the test was wrong, the launcher itself drew the palettes correctly
+- The stroke widths are now written as `f32` explicitly. The newest Rust compiler warned that the old form will stop compiling in a future release
+- The release tag has to match the version in `Cargo.toml`: for this version the tag is `v0.10.1`
+
+## [0.10.0] — Microsoft sign-in
+- A separate **Microsoft account** block at the top of **Accounts**: sign in with a licensed Minecraft account and play on online-mode servers
+- Sign-in through Microsoft's own page with a short code (device code flow): the launcher never sees the password. The code can be copied, the page opened with one button, and the sign-in cancelled at any time
+- The sign-in is renewed silently before each launch, so it does not have to be repeated. A broken or expired sign-in is reported before the long downloads start
+- The game is started with the real Minecraft token, name and UUID of the profile. The token is hidden in the launch log, and the temporary @argfile that could contain it is deleted when the game exits
+- The tokens are stored in a separate file per account (`auth/<uuid>.json`, owner-only on Linux and macOS), not in `config.json`. Deleting the account deletes the file
+- Clear messages for the usual problems: no Xbox profile, child account, unavailable country, no Minecraft purchase, an application that Mojang has not approved
+- The Azure application ID is entered in **Accounts → Microsoft account** or built in with the `FERRUM_MS_CLIENT_ID` environment variable; the release workflow passes the repository variable of the same name. It has to be approved by Mojang, see README → Microsoft sign-in
+- Accounts show their type (Microsoft, offline, temporary). The Skin button is hidden for Microsoft accounts, their skin is changed on minecraft.net
+- The terms of use mention Microsoft sign-in and how the tokens are stored, so they are shown again after the update
+
 ## [0.9.1] — new avatar set
 - Added avatars: Axolotl, Cat and Wolf
 - Removed the Steve and Alex avatars. An account that had one of them now shows **Auto** (the face of the skin, or the first letter of the nickname); nothing else changes, and the account can pick a new avatar at any time
@@ -111,6 +127,5 @@ Every version has a matching git tag `vX.Y.Z` and a release on GitHub.
 - Release builds for Windows, Linux and macOS through GitHub Actions
 
 ## Plan
-- 0.10.0 — sign-in with a Microsoft account
 - 0.11.0 — one-click mod updates
 - 1.0.0 — stable release

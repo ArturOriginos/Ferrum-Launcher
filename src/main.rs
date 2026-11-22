@@ -12,6 +12,7 @@ mod launch;
 mod loaders;
 mod minecraft;
 mod mods;
+mod msauth;
 mod net;
 mod perf;
 mod skin;

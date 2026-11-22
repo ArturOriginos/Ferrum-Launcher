@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::net::Progress;
-use crate::{java, loaders, minecraft, perf, skin};
+use crate::{java, loaders, minecraft, msauth, perf, skin};
 use anyhow::{anyhow, Context, Result};
 use reqwest::blocking::Client;
 use std::{
@@ -62,6 +62,18 @@ fn run_inner(
     let root = game_root();
     let game_dir = inst.dir();
     fs::create_dir_all(game_dir.join("mods"))?;
+    // a leftover from an earlier run may contain the access token
+    let _ = fs::remove_file(game_dir.join(".ferrum_args.txt"));
+
+    // Microsoft account: check (and silently renew) the sign-in first, so a problem shows up
+    // before the long downloads.
+    let client_id = msauth::client_id(&st.ms_client_id);
+    if acc.microsoft {
+        progress.label("Signing in to Microsoft…");
+        msauth::ensure_session(http, &client_id, &acc.uuid)
+            .context("Microsoft sign-in failed")?;
+        note(log, "Microsoft account: signed in");
+    }
 
     progress.label("Checking Minecraft…");
     minecraft::ensure_vanilla_json(http, &root, &inst.mc_version)?;
@@ -107,6 +119,13 @@ fn run_inner(
     let resolved = minecraft::resolve(&root, &id)?;
     let prep = minecraft::prepare(http, &root, &game_dir, &resolved, progress)?;
 
+    let (name, uuid, access_token) = if acc.microsoft {
+        let s = msauth::ensure_session(http, &client_id, &acc.uuid)
+            .context("Microsoft sign-in failed")?;
+        (s.name, s.uuid, Some(s.access_token))
+    } else {
+        (acc.name.clone(), acc.uuid.clone(), None)
+    };
     let opts = minecraft::LaunchOpts {
         game_dir: game_dir.clone(),
         ram_mb: inst.effective_ram(st),
@@ -114,12 +133,13 @@ fn run_inner(
         width: st.win_w,
         height: st.win_h,
         fullscreen: st.fullscreen,
-        name: acc.name.clone(),
-        uuid: acc.uuid.clone(),
+        name,
+        uuid,
+        access_token,
     };
     let args = minecraft::build_args(&resolved, &prep, &root, &opts);
     note(log, &format!("Memory: {} MB", opts.ram_mb));
-    note(log, &format!("Command: {} {}", java_bin, args.join(" ")));
+    note(log, &format!("Command: {} {}", java_bin, redact(&args).join(" ")));
     note(log, "Launching the game. The game output follows.");
 
     progress.label("Launching the game…");
@@ -133,12 +153,19 @@ fn run_inner(
         .stdout(Stdio::from(out))
         .stderr(Stdio::from(err));
     let started = SystemTime::now();
-    let mut child = cmd
-        .spawn()
-        .with_context(|| format!("Could not run {java_bin}"))?;
+    let spawned = cmd.spawn();
+    let mut child = match spawned {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = fs::remove_file(game_dir.join(".ferrum_args.txt"));
+            return Err(anyhow::Error::new(e).context(format!("Could not run {java_bin}")));
+        }
+    };
 
     progress.running("Game running");
-    let status = child.wait()?;
+    let waited = child.wait();
+    let _ = fs::remove_file(game_dir.join(".ferrum_args.txt"));
+    let status = waited?;
     let code = status.code().map_or("?".to_string(), |c| c.to_string());
     note(log, &format!("The game exited, exit code: {code}"));
 
@@ -159,6 +186,22 @@ fn run_inner(
         progress.fail(msg);
     }
     Ok(())
+}
+
+/// The arguments for the log: the access token is replaced with stars.
+fn redact(args: &[String]) -> Vec<String> {
+    let mut out = Vec::with_capacity(args.len());
+    let mut hide_next = false;
+    for a in args {
+        if hide_next {
+            out.push("***".to_string());
+            hide_next = false;
+        } else {
+            hide_next = a == "--accessToken";
+            out.push(a.clone());
+        }
+    }
+    out
 }
 
 /// Keeps only the `keep` newest entries in the folder. Names start with the date,
@@ -253,6 +296,18 @@ fn collect_crash(game_dir: &Path, launch_log: &Path, started: SystemTime, inst: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_access_token_is_hidden_in_the_log() {
+        let args: Vec<String> = ["--username", "Steve", "--accessToken", "SECRET", "--gameDir", "gd"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let shown = redact(&args).join(" ");
+        assert!(!shown.contains("SECRET"));
+        assert!(shown.contains("--accessToken ***"));
+        assert!(shown.contains("--gameDir gd"));
+    }
 
     #[test]
     fn diagnoses_common_crashes() {
